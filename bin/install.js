@@ -3,30 +3,18 @@
 /**
  * ShipFast CLI
  *
- * Global install: agents, commands, hooks, core go to ~/.claude/ (or other runtime)
- * Per-repo: `shipfast init` indexes codebase into .shipfast/brain.db
- *
- * Usage:
- *   npm install -g @shipfast-ai/shipfast    # Install globally (one time)
- *   shipfast install --claude               # Setup for a runtime
- *   shipfast install --all                  # Setup for all runtimes
- *   shipfast init                           # Index current repo's codebase
- *   shipfast train                          # Re-index (alias for init)
- *   shipfast update                         # Update to latest version
- *   shipfast uninstall                      # Remove ShipFast
- *
- * Also works with npx:
- *   npx @shipfast-ai/shipfast install --claude
- *   npx @shipfast-ai/shipfast init
+ * npm i -g @shipfast-ai/shipfast   → auto-detect AI tools + install for all
+ * shipfast init                     → index current repo
+ * shipfast update                   → update + re-detect new runtimes
+ * shipfast uninstall                → remove everything
+ * shipfast help                     → show commands
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const readline = require('readline');
-const { execFileSync: safeExec } = require('child_process');
+const { execFileSync: safeRun } = require('child_process');
 
-// Colors
 const cyan = '\x1b[36m';
 const green = '\x1b[32m';
 const yellow = '\x1b[33m';
@@ -36,485 +24,353 @@ const bold = '\x1b[1m';
 const reset = '\x1b[0m';
 
 const pkg = require('../package.json');
+const command = (process.argv[2] || '').toLowerCase().replace(/^--/, '');
 
-// Parse args
-const args = process.argv.slice(2);
-const command = args[0] || '';
-
-// Runtime detection — all 14 runtimes
+// 14 runtimes — global config paths (relative to home dir)
 const RUNTIMES = {
-  claude:       { dir: '.claude',     global: '.claude',                          name: 'Claude Code' },
-  opencode:     { dir: '.opencode',   global: path.join('.config', 'opencode'),   name: 'OpenCode' },
-  gemini:       { dir: '.gemini',     global: '.gemini',                          name: 'Gemini CLI' },
-  kilo:         { dir: '.kilo',       global: path.join('.config', 'kilo'),       name: 'Kilo' },
-  codex:        { dir: '.codex',      global: '.codex',                           name: 'Codex' },
-  copilot:      { dir: '.github',     global: '.copilot',                         name: 'Copilot' },
-  cursor:       { dir: '.cursor',     global: '.cursor',                          name: 'Cursor' },
-  windsurf:     { dir: '.windsurf',   global: path.join('.codeium', 'windsurf'),  name: 'Windsurf' },
-  antigravity:  { dir: '.agent',      global: path.join('.gemini', 'antigravity'),name: 'Antigravity' },
-  augment:      { dir: '.augment',    global: '.augment',                         name: 'Augment' },
-  trae:         { dir: '.trae',       global: '.trae',                            name: 'Trae' },
-  qwen:         { dir: '.qwen',       global: '.qwen',                            name: 'Qwen Code' },
-  codebuddy:    { dir: '.codebuddy',  global: '.codebuddy',                       name: 'CodeBuddy' },
-  cline:        { dir: '.cline',      global: '.cline',                           name: 'Cline' },
+  claude:       { path: '.claude',                           name: 'Claude Code' },
+  opencode:     { path: path.join('.config', 'opencode'),    name: 'OpenCode' },
+  gemini:       { path: '.gemini',                           name: 'Gemini CLI' },
+  kilo:         { path: path.join('.config', 'kilo'),        name: 'Kilo' },
+  codex:        { path: '.codex',                            name: 'Codex' },
+  copilot:      { path: '.copilot',                          name: 'Copilot' },
+  cursor:       { path: '.cursor',                           name: 'Cursor' },
+  windsurf:     { path: path.join('.codeium', 'windsurf'),   name: 'Windsurf' },
+  antigravity:  { path: path.join('.gemini', 'antigravity'), name: 'Antigravity' },
+  augment:      { path: '.augment',                          name: 'Augment' },
+  trae:         { path: '.trae',                             name: 'Trae' },
+  qwen:         { path: '.qwen',                             name: 'Qwen Code' },
+  codebuddy:    { path: '.codebuddy',                        name: 'CodeBuddy' },
+  cline:        { path: '.cline',                            name: 'Cline' },
 };
 
-// Parse runtime flags
-const hasAll = args.includes('--all');
-let selectedRuntimes = [];
-if (hasAll) {
-  selectedRuntimes = Object.keys(RUNTIMES);
-} else {
-  for (const key of Object.keys(RUNTIMES)) {
-    if (args.includes(`--${key}`)) selectedRuntimes.push(key);
+// ============================================================
+// Router
+// ============================================================
+
+function main() {
+  console.log(`\n${bold}${cyan}ShipFast${reset} v${pkg.version}\n`);
+
+  switch (command) {
+    case 'init':
+    case 'train':    return cmdInit();
+    case 'update':   return cmdUpdate();
+    case 'uninstall': return cmdUninstall();
+    case 'help':
+    case 'h':        return cmdHelp();
+    case 'version':
+    case 'v':        return;
+    case 'install':
+    case '':         return cmdInstall();
+    default:
+      console.log(`Unknown: ${command}. Run ${cyan}shipfast help${reset}\n`);
   }
 }
 
 // ============================================================
-// Main router
+// INSTALL — auto-detect + install for all detected runtimes
 // ============================================================
 
-async function main() {
-  console.log(`\n${bold}${cyan}ShipFast${reset} v${pkg.version}`);
-  console.log(`${dim}5 agents. 12 commands. SQLite brain. 3-5x less tokens than alternatives.${reset}\n`);
+function cmdInstall() {
+  const detected = detectRuntimes();
 
-  const cmd = command.toLowerCase();
-
-  // Route to subcommand
-  if (cmd === 'init' || cmd === 'train') {
-    return initRepo();
-  }
-  if (cmd === 'uninstall' || cmd === '--uninstall' || cmd === '-u') {
-    return uninstallAll();
-  }
-  if (cmd === 'update') {
-    return updateSelf();
-  }
-  if (cmd === 'version' || cmd === '--version' || cmd === '-v') {
-    return; // version already printed
-  }
-  if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
-    return showHelp();
+  if (detected.length === 0) {
+    console.log(`${yellow}No AI coding tools detected.${reset}`);
+    console.log(`Installing for Claude Code by default.\n`);
+    installFor('claude', RUNTIMES.claude);
+    printDone(1);
+    return;
   }
 
-  // Default: install (handles `shipfast install --claude`, `shipfast --claude`, `npx ... --claude`)
-  return installGlobal();
+  console.log(`Detected: ${bold}${detected.map(([_, r]) => r.name).join(', ')}${reset}\n`);
+
+  for (const [key, runtime] of detected) {
+    installFor(key, runtime);
+  }
+
+  printDone(detected.length);
 }
 
-// ============================================================
-// INSTALL — one-time global setup for runtimes
-// ============================================================
-
-async function installGlobal() {
-  if (selectedRuntimes.length === 0) {
-    selectedRuntimes = await promptRuntimeMultiSelect();
-  }
-
-  for (const rtKey of selectedRuntimes) {
-    const runtime = RUNTIMES[rtKey];
-    if (!runtime) { console.error(`${red}Unknown: ${rtKey}${reset}`); continue; }
-
-    const targetDir = path.join(os.homedir(), runtime.global);
-    console.log(`${cyan}Installing for ${runtime.name}...${reset}`);
-    console.log(`${dim}  ${targetDir}${reset}`);
-    installToDir(targetDir, runtime.name);
-  }
-
-  console.log(`\n${green}${bold}Installed for ${selectedRuntimes.length} runtime${selectedRuntimes.length > 1 ? 's' : ''}!${reset}`);
-  console.log(`\nCommands available globally in all projects:`);
-  printCommands();
-
-  // If we're in a git repo, offer to init
-  if (isGitRepo(process.cwd())) {
-    console.log(`${yellow}Git repo detected.${reset} Indexing codebase...`);
-    initRepo();
-  } else {
-    console.log(`${dim}Run ${cyan}shipfast init${reset}${dim} inside any git repo to index it.${reset}\n`);
-  }
+function detectRuntimes() {
+  const home = os.homedir();
+  return Object.entries(RUNTIMES).filter(([_, rt]) =>
+    fs.existsSync(path.join(home, rt.path))
+  );
 }
 
-function installToDir(targetDir, runtimeName) {
-  const sfDir = path.join(targetDir, 'shipfast');
-  const commandsDir = path.join(targetDir, 'commands');
-  const hooksDir = path.join(targetDir, 'hooks');
+function installFor(key, runtime) {
+  const dir = path.join(os.homedir(), runtime.path);
+  fs.mkdirSync(dir, { recursive: true });
 
-  for (const dir of [sfDir, commandsDir, hooksDir]) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  // Copy brain module
+  // Copy shipfast core (brain + core modules)
+  const sfDir = path.join(dir, 'shipfast');
   const brainDir = path.join(sfDir, 'brain');
-  fs.mkdirSync(brainDir, { recursive: true });
-  for (const f of ['schema.sql', 'index.cjs', 'indexer.cjs']) {
-    copyFile(path.join(__dirname, '..', 'brain', f), path.join(brainDir, f));
-  }
-
-  // Copy core module
   const coreDir = path.join(sfDir, 'core');
-  fs.mkdirSync(coreDir, { recursive: true });
-  for (const f of ['autopilot.cjs', 'budget.cjs', 'checkpoint.cjs', 'learning.cjs', 'ambiguity.cjs', 'context-builder.cjs', 'conversation.cjs', 'executor.cjs', 'git-intel.cjs', 'guardrails.cjs', 'model-selector.cjs', 'retry.cjs', 'session.cjs', 'skip-logic.cjs', 'templates.cjs', 'verify.cjs']) {
-    copyFile(path.join(__dirname, '..', 'core', f), path.join(coreDir, f));
-  }
+  for (const d of [sfDir, brainDir, coreDir]) fs.mkdirSync(d, { recursive: true });
+
+  for (const f of ['schema.sql', 'index.cjs', 'indexer.cjs'])
+    copy('brain/' + f, path.join(brainDir, f));
+
+  for (const f of ['autopilot.cjs','budget.cjs','checkpoint.cjs','learning.cjs','ambiguity.cjs','context-builder.cjs','conversation.cjs','executor.cjs','git-intel.cjs','guardrails.cjs','model-selector.cjs','retry.cjs','session.cjs','skip-logic.cjs','templates.cjs','verify.cjs'])
+    copy('core/' + f, path.join(coreDir, f));
 
   // Copy agents
-  const agentsDir = path.join(targetDir, 'agents');
+  const agentsDir = path.join(dir, 'agents');
   fs.mkdirSync(agentsDir, { recursive: true });
-  for (const f of ['scout.md', 'architect.md', 'builder.md', 'critic.md', 'scribe.md']) {
-    copyFile(path.join(__dirname, '..', 'agents', f), path.join(agentsDir, f));
-  }
+  for (const f of ['scout.md','architect.md','builder.md','critic.md','scribe.md'])
+    copy('agents/' + f, path.join(agentsDir, f));
 
   // Copy commands
-  const sfCommandsDir = path.join(commandsDir, 'sf');
-  fs.mkdirSync(sfCommandsDir, { recursive: true });
-  for (const f of ['do.md', 'status.md', 'undo.md', 'config.md', 'brain.md', 'learn.md', 'discuss.md', 'project.md', 'resume.md', 'ship.md', 'help.md', 'milestone.md']) {
-    copyFile(path.join(__dirname, '..', 'commands', 'sf', f), path.join(sfCommandsDir, f));
-  }
+  const cmdDir = path.join(dir, 'commands', 'sf');
+  fs.mkdirSync(cmdDir, { recursive: true });
+  for (const f of ['do.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md'])
+    copy('commands/sf/' + f, path.join(cmdDir, f));
 
   // Copy hooks
-  for (const f of ['sf-context-monitor.js', 'sf-statusline.js', 'sf-first-run.js']) {
-    copyFile(path.join(__dirname, '..', 'hooks', f), path.join(hooksDir, f));
-  }
+  const hooksDir = path.join(dir, 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js'])
+    copy('hooks/' + f, path.join(hooksDir, f));
 
   // Runtime-specific config
-  const claudeCompatible = ['Claude Code', 'OpenCode', 'Kilo'];
-  const geminiCompatible = ['Gemini CLI', 'Antigravity'];
+  const claudeCompat = ['Claude Code', 'OpenCode', 'Kilo'];
+  const geminiCompat = ['Gemini CLI', 'Antigravity'];
 
-  if (claudeCompatible.includes(runtimeName)) {
-    updateSettings(targetDir, hooksDir);
-    updateInstructionFile(path.join(targetDir, 'CLAUDE.md'));
-  } else if (geminiCompatible.includes(runtimeName)) {
-    updateInstructionFile(path.join(targetDir, 'AGENTS.md'));
-  } else if (runtimeName === 'Copilot') {
-    updateInstructionFile(path.join(targetDir, 'copilot-instructions.md'));
-  } else if (runtimeName === 'Cursor') {
-    updateInstructionFile(path.join(targetDir, 'rules'));
+  if (claudeCompat.includes(runtime.name)) {
+    writeSettings(dir, hooksDir);
+    writeInstruction(path.join(dir, 'CLAUDE.md'));
+  } else if (geminiCompat.includes(runtime.name)) {
+    writeInstruction(path.join(dir, 'AGENTS.md'));
+  } else if (runtime.name === 'Copilot') {
+    writeInstruction(path.join(dir, 'copilot-instructions.md'));
+  } else if (runtime.name === 'Cursor') {
+    writeInstruction(path.join(dir, 'rules'));
   } else {
-    updateInstructionFile(path.join(targetDir, 'AGENTS.md'));
+    writeInstruction(path.join(dir, 'AGENTS.md'));
   }
+
+  console.log(`  ${green}${runtime.name}${reset} ${dim}${dir}${reset}`);
+}
+
+function printDone(count) {
+  console.log(`\n${green}${bold}Installed for ${count} runtime${count > 1 ? 's' : ''}!${reset}\n`);
+  console.log(`${bold}Next:${reset}`);
+  console.log(`  ${cyan}cd your-project${reset}`);
+  console.log(`  ${cyan}shipfast init${reset}        Index your codebase\n`);
+  console.log(`${bold}In your AI tool:${reset}`);
+  console.log(`  ${cyan}/sf-do${reset} <task>     Describe what you want`);
+  console.log(`  ${cyan}/sf-help${reset}          Show all 12 commands\n`);
 }
 
 // ============================================================
-// INIT — index current repo's codebase
+// INIT — index current repo
 // ============================================================
 
-function initRepo() {
+function cmdInit() {
   const cwd = process.cwd();
-
-  if (!isGitRepo(cwd)) {
-    console.log(`${red}Not a git repo.${reset} Run this inside a git repository.`);
+  if (!fs.existsSync(path.join(cwd, '.git'))) {
+    console.log(`${red}Not a git repo.${reset} Run this inside a git repository.\n`);
     return;
   }
 
-  // Find the indexer (check global install locations)
-  const indexerPath = findIndexer();
-  if (!indexerPath) {
-    console.log(`${red}ShipFast not installed.${reset} Run: ${cyan}shipfast install --claude${reset} first.`);
+  const indexer = findIndexer();
+  if (!indexer) {
+    console.log(`${red}ShipFast not installed.${reset} Run: ${cyan}npm i -g @shipfast-ai/shipfast${reset}\n`);
     return;
   }
 
-  const brainDbPath = path.join(cwd, '.shipfast', 'brain.db');
-  const isRetrain = fs.existsSync(brainDbPath);
-
-  console.log(isRetrain ? `${cyan}Re-indexing codebase...${reset}` : `${cyan}Indexing codebase...${reset}`);
+  const brainExists = fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'));
+  console.log(brainExists ? 'Re-indexing codebase...' : 'Indexing codebase...');
 
   try {
-    const output = safeExec(process.execPath, [indexerPath, cwd], {
+    const out = safeRun(process.execPath, [indexer, cwd], {
       encoding: 'utf8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe']
     });
-    console.log(`${green}${output.trim()}${reset}`);
-    addToGitignore(cwd);
-    console.log(`\n${dim}Brain ready at .shipfast/brain.db${reset}`);
-    console.log(`${dim}Use /sf-do in your AI coding tool to start working.${reset}\n`);
+    console.log(`${green}${out.trim()}${reset}`);
+
+    // Add .shipfast/ to .gitignore
+    const gi = path.join(cwd, '.gitignore');
+    if (fs.existsSync(gi)) {
+      const c = fs.readFileSync(gi, 'utf8');
+      if (!c.includes('.shipfast/')) fs.appendFileSync(gi, '\n# ShipFast brain\n.shipfast/\n');
+    } else {
+      fs.writeFileSync(gi, '# ShipFast brain\n.shipfast/\n');
+    }
+
+    console.log(`\n${dim}Brain: .shipfast/brain.db${reset}`);
+    console.log(`${dim}Use /sf-do in your AI tool.${reset}\n`);
   } catch (err) {
-    console.log(`${red}Indexing failed: ${err.message.slice(0, 100)}${reset}`);
+    console.log(`${red}Failed: ${err.message.slice(0, 100)}${reset}\n`);
   }
 }
 
 function findIndexer() {
-  // Check all possible global locations
-  const candidates = [
-    path.join(os.homedir(), '.claude', 'shipfast', 'brain', 'indexer.cjs'),
-    path.join(os.homedir(), '.cursor', 'shipfast', 'brain', 'indexer.cjs'),
-    path.join(os.homedir(), '.gemini', 'shipfast', 'brain', 'indexer.cjs'),
-    path.join(os.homedir(), '.codex', 'shipfast', 'brain', 'indexer.cjs'),
-    path.join(os.homedir(), '.config', 'opencode', 'shipfast', 'brain', 'indexer.cjs'),
-    path.join(os.homedir(), '.config', 'kilo', 'shipfast', 'brain', 'indexer.cjs'),
-    // Also check local .claude/ (backward compat with old local installs)
-    path.join(process.cwd(), '.claude', 'shipfast', 'brain', 'indexer.cjs'),
-    // Also check if running from the package source directly
-    path.join(__dirname, '..', 'brain', 'indexer.cjs'),
-  ];
-  return candidates.find(p => fs.existsSync(p)) || null;
+  // Check all global runtime dirs + package source
+  const paths = Object.values(RUNTIMES)
+    .map(r => path.join(os.homedir(), r.path, 'shipfast', 'brain', 'indexer.cjs'));
+  paths.push(path.join(__dirname, '..', 'brain', 'indexer.cjs'));
+  return paths.find(p => fs.existsSync(p)) || null;
 }
 
 // ============================================================
-// UPDATE — update to latest version
+// UPDATE — update package + re-detect + re-install
 // ============================================================
 
-function updateSelf() {
-  console.log(`${cyan}Updating ShipFast...${reset}`);
+function cmdUpdate() {
+  console.log(`Updating...\n`);
   try {
-    safeExec('npm', ['install', '-g', '@shipfast-ai/shipfast@latest'], {
+    safeRun('npm', ['install', '-g', '@shipfast-ai/shipfast@latest'], {
       encoding: 'utf8', stdio: 'inherit'
     });
-    console.log(`${green}Updated! Run ${cyan}shipfast install --claude${reset}${green} to update runtime files.${reset}`);
+    console.log(`\n${cyan}Re-detecting runtimes...${reset}\n`);
+    cmdInstall();
   } catch {
-    console.log(`${yellow}Auto-update failed. Run manually:${reset}`);
-    console.log(`  npm install -g @shipfast-ai/shipfast@latest`);
+    console.log(`${yellow}Auto-update failed.${reset} Run: npm i -g @shipfast-ai/shipfast@latest\n`);
   }
 }
 
 // ============================================================
-// UNINSTALL — remove from all runtimes
+// UNINSTALL — remove from all detected runtimes
 // ============================================================
 
-function uninstallAll() {
-  let uninstalled = 0;
+function cmdUninstall() {
+  let removed = 0;
 
-  const runtimesToCheck = selectedRuntimes.length > 0
-    ? selectedRuntimes.map(k => [k, RUNTIMES[k]]).filter(([_, v]) => v)
-    : Object.entries(RUNTIMES);
-
-  for (const [rtKey, runtime] of runtimesToCheck) {
-    // Check global
-    const globalDir = path.join(os.homedir(), runtime.global);
-    if (fs.existsSync(path.join(globalDir, 'shipfast'))) {
-      uninstallFromDir(globalDir, runtime.name);
-      uninstalled++;
-    }
-    // Check local (cwd)
-    const localDir = path.join(process.cwd(), runtime.dir);
-    if (fs.existsSync(path.join(localDir, 'shipfast'))) {
-      uninstallFromDir(localDir, runtime.name);
-      uninstalled++;
-    }
-  }
-
-  // Also remove .shipfast/ brain from cwd
-  const brainDir = path.join(process.cwd(), '.shipfast');
-  if (fs.existsSync(brainDir)) {
-    fs.rmSync(brainDir, { recursive: true });
-    console.log(`${dim}Removed .shipfast/brain.db${reset}`);
-  }
-
-  if (uninstalled === 0) {
-    console.log(`${dim}No ShipFast installations found.${reset}`);
-  } else {
-    console.log(`\n${green}Uninstalled from ${uninstalled} location${uninstalled > 1 ? 's' : ''}.${reset}`);
-  }
-}
-
-function uninstallFromDir(targetDir, runtimeName) {
-  const sfDir = path.join(targetDir, 'shipfast');
-  const sfCommands = path.join(targetDir, 'commands', 'sf');
-  const agentsDir = path.join(targetDir, 'agents');
-
-  for (const dir of [sfDir, sfCommands]) {
-    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true });
-  }
-
-  if (fs.existsSync(agentsDir)) {
-    for (const file of fs.readdirSync(agentsDir)) {
-      if (['scout.md', 'architect.md', 'builder.md', 'critic.md', 'scribe.md'].includes(file)) {
-        fs.unlinkSync(path.join(agentsDir, file));
+  for (const [key, runtime] of Object.entries(RUNTIMES)) {
+    const dir = path.join(os.homedir(), runtime.path);
+    if (fs.existsSync(path.join(dir, 'shipfast'))) {
+      // Remove shipfast dir + commands
+      for (const d of [path.join(dir, 'shipfast'), path.join(dir, 'commands', 'sf')]) {
+        if (fs.existsSync(d)) fs.rmSync(d, { recursive: true });
       }
+      // Remove agents
+      const ad = path.join(dir, 'agents');
+      if (fs.existsSync(ad)) {
+        for (const f of ['scout.md','architect.md','builder.md','critic.md','scribe.md']) {
+          const fp = path.join(ad, f);
+          if (fs.existsSync(fp)) fs.unlinkSync(fp);
+        }
+      }
+      // Remove hooks
+      const hd = path.join(dir, 'hooks');
+      if (fs.existsSync(hd)) {
+        for (const f of fs.readdirSync(hd)) {
+          if (f.startsWith('sf-')) fs.unlinkSync(path.join(hd, f));
+        }
+      }
+      // Clean settings.json
+      cleanSettings(dir);
+      console.log(`  ${green}${runtime.name}${reset} — removed`);
+      removed++;
     }
   }
 
-  const hooksDir = path.join(targetDir, 'hooks');
-  if (fs.existsSync(hooksDir)) {
-    for (const file of fs.readdirSync(hooksDir)) {
-      if (file.startsWith('sf-')) fs.unlinkSync(path.join(hooksDir, file));
-    }
+  // Remove brain from cwd
+  const brain = path.join(process.cwd(), '.shipfast');
+  if (fs.existsSync(brain)) {
+    fs.rmSync(brain, { recursive: true });
+    console.log(`  ${dim}Removed .shipfast/brain.db${reset}`);
   }
 
-  console.log(`  ${green}Removed from ${runtimeName}${reset} (${targetDir})`);
+  if (removed === 0) {
+    console.log(`${dim}No installations found.${reset}`);
+  } else {
+    console.log(`\n${green}Removed from ${removed} runtime${removed > 1 ? 's' : ''}.${reset}`);
+  }
+  console.log(`${dim}Run: npm uninstall -g @shipfast-ai/shipfast${reset}\n`);
+}
+
+function cleanSettings(dir) {
+  const sp = path.join(dir, 'settings.json');
+  if (!fs.existsSync(sp)) return;
+  try {
+    const s = JSON.parse(fs.readFileSync(sp, 'utf8'));
+    if (!s.hooks) return;
+    let changed = false;
+    for (const evt of ['PostToolUse', 'Notification', 'PreToolUse']) {
+      if (!s.hooks[evt]) continue;
+      const before = s.hooks[evt].length;
+      s.hooks[evt] = s.hooks[evt].filter(e => {
+        const cmd = e.hooks ? ((e.hooks[0] || {}).command || '') : (e.command || '');
+        return !cmd.includes('sf-');
+      });
+      if (s.hooks[evt].length === 0) { delete s.hooks[evt]; changed = true; }
+      else if (s.hooks[evt].length !== before) changed = true;
+    }
+    if (Object.keys(s.hooks).length === 0) delete s.hooks;
+    if (changed) fs.writeFileSync(sp, JSON.stringify(s, null, 2));
+  } catch {}
 }
 
 // ============================================================
 // HELP
 // ============================================================
 
-function showHelp() {
-  console.log(`${bold}Usage:${reset}\n`);
-  console.log(`  ${cyan}shipfast install --claude${reset}       Install globally for Claude Code`);
-  console.log(`  ${cyan}shipfast install --all${reset}          Install for all 14 runtimes`);
-  console.log(`  ${cyan}shipfast install --claude --cursor${reset}  Install for multiple runtimes`);
-  console.log(`  ${cyan}shipfast init${reset}                   Index current repo's codebase`);
-  console.log(`  ${cyan}shipfast train${reset}                  Re-index codebase (same as init)`);
-  console.log(`  ${cyan}shipfast update${reset}                 Update to latest version`);
-  console.log(`  ${cyan}shipfast uninstall${reset}              Remove from all runtimes`);
-  console.log(`  ${cyan}shipfast help${reset}                   Show this help\n`);
-  console.log(`${bold}Runtimes:${reset}`);
-  console.log(`  Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot,`);
-  console.log(`  Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code,`);
-  console.log(`  CodeBuddy, Cline\n`);
-  console.log(`${bold}Workflow:${reset}`);
-  console.log(`  1. ${cyan}npm i -g @shipfast-ai/shipfast${reset}   Install package globally`);
-  console.log(`  2. ${cyan}shipfast install --claude${reset}        Setup for your AI tool`);
-  console.log(`  3. ${cyan}cd your-project && shipfast init${reset} Index your codebase`);
-  console.log(`  4. Use /sf-do in your AI tool to start working\n`);
-  printCommands();
-}
-
-function printCommands() {
-  console.log(`\n${bold}Commands (in your AI tool):${reset}`);
-  console.log(`  ${cyan}/sf-do${reset}         The one command — describe what you want`);
-  console.log(`  ${cyan}/sf-discuss${reset}    Clarify ambiguity before planning`);
-  console.log(`  ${cyan}/sf-project${reset}    Decompose a large project into phases`);
-  console.log(`  ${cyan}/sf-ship${reset}       Create PR from completed work`);
-  console.log(`  ${cyan}/sf-status${reset}     Show progress and token usage`);
-  console.log(`  ${cyan}/sf-resume${reset}     Resume work from previous session`);
-  console.log(`  ${cyan}/sf-undo${reset}       Rollback a task`);
-  console.log(`  ${cyan}/sf-brain${reset}      Query the knowledge graph`);
-  console.log(`  ${cyan}/sf-learn${reset}      Teach a pattern or lesson`);
-  console.log(`  ${cyan}/sf-config${reset}     Set token budget and model tiers`);
-  console.log(`  ${cyan}/sf-milestone${reset}  Complete or start a milestone`);
-  console.log(`  ${cyan}/sf-help${reset}       Show all commands\n`);
+function cmdHelp() {
+  console.log(`${bold}Terminal commands:${reset}\n`);
+  console.log(`  ${cyan}shipfast init${reset}           Index current repo into .shipfast/brain.db`);
+  console.log(`  ${cyan}shipfast update${reset}         Update to latest + re-detect runtimes`);
+  console.log(`  ${cyan}shipfast uninstall${reset}      Remove from all AI tools`);
+  console.log(`  ${cyan}shipfast help${reset}           Show this help\n`);
+  console.log(`${bold}In your AI tool:${reset}\n`);
+  console.log(`  ${cyan}/sf-do${reset} <task>         The one command — describe what you want`);
+  console.log(`  ${cyan}/sf-discuss${reset} <task>    Clarify ambiguity before planning`);
+  console.log(`  ${cyan}/sf-project${reset} <desc>    Decompose a large project into phases`);
+  console.log(`  ${cyan}/sf-ship${reset}              Create PR from completed work`);
+  console.log(`  ${cyan}/sf-status${reset}            Show progress and token usage`);
+  console.log(`  ${cyan}/sf-resume${reset}            Resume work from previous session`);
+  console.log(`  ${cyan}/sf-undo${reset}              Rollback a task`);
+  console.log(`  ${cyan}/sf-brain${reset} <query>     Query the knowledge graph`);
+  console.log(`  ${cyan}/sf-learn${reset} <pattern>   Teach a pattern or lesson`);
+  console.log(`  ${cyan}/sf-config${reset}            Set token budget and model tiers`);
+  console.log(`  ${cyan}/sf-milestone${reset}         Complete or start a milestone`);
+  console.log(`  ${cyan}/sf-help${reset}              Show all commands\n`);
 }
 
 // ============================================================
-// Settings & config helpers
+// Helpers
 // ============================================================
 
-function updateSettings(targetDir, hooksDir) {
-  const settingsPath = path.join(targetDir, 'settings.json');
-  let settings = {};
-  if (fs.existsSync(settingsPath)) {
-    try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {}
-  }
+function writeSettings(dir, hooksDir) {
+  const sp = path.join(dir, 'settings.json');
+  let s = {};
+  if (fs.existsSync(sp)) { try { s = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch {} }
+  if (!s.hooks) s.hooks = {};
 
-  if (!settings.hooks) settings.hooks = {};
-  settings.hooks['PostToolUse'] = settings.hooks['PostToolUse'] || [];
-  settings.hooks['Notification'] = settings.hooks['Notification'] || [];
-  settings.hooks['PreToolUse'] = settings.hooks['PreToolUse'] || [];
-
-  function hasSfHook(arr, filename) {
-    return (arr || []).some(entry => {
-      if (entry.hooks && Array.isArray(entry.hooks)) {
-        return entry.hooks.some(h => (h.command || '').includes(filename));
-      }
-      return (entry.command || '').includes(filename);
+  function has(arr, file) {
+    return (arr || []).some(e => {
+      if (e.hooks && Array.isArray(e.hooks)) return e.hooks.some(h => (h.command || '').includes(file));
+      return (e.command || '').includes(file);
     });
   }
+  function mk(cmd) { return { matcher: '', hooks: [{ type: 'command', command: cmd }] }; }
 
-  function makeHook(cmd) {
-    return { matcher: '', hooks: [{ type: 'command', command: cmd }] };
+  for (const [evt, file] of [['PostToolUse','sf-context-monitor.js'],['Notification','sf-statusline.js'],['PreToolUse','sf-first-run.js']]) {
+    s.hooks[evt] = s.hooks[evt] || [];
+    if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));
   }
-
-  const ctxMon = path.join(hooksDir, 'sf-context-monitor.js');
-  if (!hasSfHook(settings.hooks['PostToolUse'], 'sf-context-monitor')) {
-    settings.hooks['PostToolUse'].push(makeHook('node ' + ctxMon));
-  }
-
-  const statusline = path.join(hooksDir, 'sf-statusline.js');
-  if (!hasSfHook(settings.hooks['Notification'], 'sf-statusline')) {
-    settings.hooks['Notification'].push(makeHook('node ' + statusline));
-  }
-
-  const firstRun = path.join(hooksDir, 'sf-first-run.js');
-  if (!hasSfHook(settings.hooks['PreToolUse'], 'sf-first-run')) {
-    settings.hooks['PreToolUse'].push(makeHook('node ' + firstRun));
-  }
-
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  fs.writeFileSync(sp, JSON.stringify(s, null, 2));
 }
 
-function updateInstructionFile(filePath) {
-  const marker = '<!-- ShipFast Configuration -->';
-  const closeMarker = '<!-- /ShipFast Configuration -->';
-
-  const sfBlock = `${marker}
-## ShipFast
-
-This project uses ShipFast for autonomous development.
-
-### Commands
-- \`/sf-do <task>\` — Single entry point. Describe what you want in natural language.
-- \`/sf-discuss <task>\` — Clarify ambiguity before planning.
-- \`/sf-project <desc>\` — Decompose a large project into phases.
-- \`/sf-ship\` — Create PR from completed work.
-- \`/sf-status\` — Show progress, token usage, brain stats.
-- \`/sf-resume\` — Resume work from previous session.
-- \`/sf-undo [task-id]\` — Rollback a completed task.
-- \`/sf-brain <query>\` — Query the codebase knowledge graph.
-- \`/sf-learn <pattern>: <lesson>\` — Teach a reusable lesson.
-- \`/sf-config [key] [value]\` — View/set token budget and model tiers.
-- \`/sf-milestone [complete|new]\` — Complete or start a milestone.
-- \`/sf-help\` — Show all commands.
-
-### How It Works
-- Brain: SQLite knowledge graph at \`.shipfast/brain.db\` — auto-indexes codebase
-- Agents: 5 composable agents (Scout, Architect, Builder, Critic, Scribe)
-- Workflow: Auto-selects depth (trivial/medium/complex) based on task complexity
-- Learning: Records failures and solutions, gets smarter over time
-
-### Rules
-- Do NOT create .planning/ directories or markdown state files
-- All state goes to brain.db via the ShipFast core modules
-- Prefer /sf-do over manual multi-step workflows
-${closeMarker}`;
+function writeInstruction(filePath) {
+  const marker = '<!-- ShipFast -->';
+  const close = '<!-- /ShipFast -->';
+  const block = `${marker}\n## ShipFast\n- \`/sf-do <task>\` — Describe what you want.\n- \`/sf-help\` — Show all 12 commands.\n- Brain: \`.shipfast/brain.db\`\n${close}`;
 
   let content = '';
   if (fs.existsSync(filePath)) {
     content = fs.readFileSync(filePath, 'utf8');
-    const startIdx = content.indexOf(marker);
-    const endIdx = content.indexOf(closeMarker);
-    if (startIdx !== -1 && endIdx !== -1) {
-      content = content.slice(0, startIdx) + content.slice(endIdx + closeMarker.length);
-    }
+    const s = content.indexOf(marker);
+    const e = content.indexOf(close);
+    if (s !== -1 && e !== -1) content = content.slice(0, s) + content.slice(e + close.length);
   }
-
-  content = content.trimEnd() + '\n\n' + sfBlock + '\n';
+  content = content.trimEnd() + '\n\n' + block + '\n';
   fs.writeFileSync(filePath, content);
 }
 
-// ============================================================
-// Utilities
-// ============================================================
-
-function isGitRepo(dir) {
-  return fs.existsSync(path.join(dir, '.git'));
-}
-
-function addToGitignore(cwd) {
-  const gitignorePath = path.join(cwd, '.gitignore');
-  const entry = '.shipfast/';
-  if (fs.existsSync(gitignorePath)) {
-    const content = fs.readFileSync(gitignorePath, 'utf8');
-    if (content.includes(entry)) return;
-    fs.appendFileSync(gitignorePath, '\n# ShipFast brain (local, not committed)\n' + entry + '\n');
-  } else {
-    fs.writeFileSync(gitignorePath, '# ShipFast brain (local, not committed)\n' + entry + '\n');
-  }
-}
-
-function copyFile(src, dest) {
+function copy(rel, dest) {
+  const src = path.join(__dirname, '..', rel);
   if (fs.existsSync(src)) fs.copyFileSync(src, dest);
 }
 
-async function promptRuntimeMultiSelect() {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  console.log('Select runtimes (comma-separated numbers, or "all"):\n');
-  const entries = Object.entries(RUNTIMES);
-  entries.forEach(([key, rt], i) => {
-    console.log(`  ${bold}${String(i + 1).padStart(2)}${reset}. ${rt.name}`);
-  });
-  console.log(`\n  ${bold} a${reset}. All runtimes`);
-
-  return new Promise(resolve => {
-    rl.question(`\n${cyan}>${reset} `, answer => {
-      rl.close();
-      const trimmed = answer.trim().toLowerCase();
-      if (trimmed === 'all' || trimmed === 'a') { resolve(Object.keys(RUNTIMES)); return; }
-      const nums = trimmed.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
-      const selected = nums.map(n => n - 1).filter(i => i >= 0 && i < entries.length).map(i => entries[i][0]);
-      resolve(selected.length > 0 ? selected : ['claude']);
-    });
-  });
-}
-
-main().catch(err => {
-  console.error(`${red}Error: ${err.message}${reset}`);
-  process.exit(1);
-});
+main();

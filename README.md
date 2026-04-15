@@ -35,52 +35,26 @@ ShipFast flips the model:
 
 ## Install
 
-### Step 1: Install globally (one time)
-
 ```bash
-npm install -g @shipfast-ai/shipfast
+npm i -g @shipfast-ai/shipfast
 ```
 
-### Step 2: Setup for your AI tool
+That's it. Auto-detects your AI tools (Claude Code, Cursor, Gemini, etc.) and installs for all of them.
 
-```bash
-# Interactive — pick runtimes from a list
-shipfast install
-
-# Or specify directly
-shipfast install --claude
-shipfast install --cursor
-shipfast install --gemini
-shipfast install --all              # all 14 runtimes
-
-# Multiple at once
-shipfast install --claude --cursor --gemini
-```
-
-### Step 3: Index your codebase (per repo)
+Then index your repo:
 
 ```bash
 cd your-project
-shipfast init                       # indexes codebase into .shipfast/brain.db
+shipfast init
 ```
 
-### That's it. Start using `/sf-do` in your AI tool.
-
-### Other commands
+### Commands
 
 ```bash
-shipfast init                       # index current repo (or re-index)
-shipfast train                      # alias for init
-shipfast update                     # update to latest version
-shipfast uninstall                  # remove from all runtimes
-shipfast help                       # show all CLI commands
-```
-
-### Also works with npx (no global install needed)
-
-```bash
-npx @shipfast-ai/shipfast install --claude
-npx @shipfast-ai/shipfast init
+shipfast init         # index current repo into .shipfast/brain.db
+shipfast update       # update to latest + re-detect new AI tools
+shipfast uninstall    # remove from all AI tools
+shipfast help         # show commands
 ```
 
 ---
