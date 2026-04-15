@@ -298,41 +298,43 @@ function updateSettings(targetDir, runtimeName, hooksDir) {
   settings.hooks['PostToolUse'] = settings.hooks['PostToolUse'] || [];
   settings.hooks['Notification'] = settings.hooks['Notification'] || [];
 
+  // Helper: check if a ShipFast hook already exists in an event array
+  function hasSfHook(eventHooks, filename) {
+    return (eventHooks || []).some(entry => {
+      // Check nested hooks array format
+      if (entry.hooks && Array.isArray(entry.hooks)) {
+        return entry.hooks.some(h => (h.command || '').includes(filename));
+      }
+      // Check flat format (legacy)
+      return (entry.command || '').includes(filename);
+    });
+  }
+
+  // Helper: create a properly formatted hook entry
+  function makeHookEntry(command) {
+    return {
+      matcher: '',
+      hooks: [{ type: 'command', command }]
+    };
+  }
+
   // Add context monitor if not present
   const contextMonitorPath = path.join(hooksDir, 'sf-context-monitor.js');
-  const hasContextMonitor = (settings.hooks['PostToolUse'] || []).some(
-    h => (typeof h === 'string' ? h : h.command || '').includes('sf-context-monitor')
-  );
-  if (!hasContextMonitor) {
-    settings.hooks['PostToolUse'].push({
-      command: `node "${contextMonitorPath}"`,
-      description: 'ShipFast context monitor'
-    });
+  if (!hasSfHook(settings.hooks['PostToolUse'], 'sf-context-monitor')) {
+    settings.hooks['PostToolUse'].push(makeHookEntry('node ' + contextMonitorPath));
   }
 
   // Add statusline if not present
   const statuslinePath = path.join(hooksDir, 'sf-statusline.js');
-  const hasStatusline = (settings.hooks['Notification'] || []).some(
-    h => (typeof h === 'string' ? h : h.command || '').includes('sf-statusline')
-  );
-  if (!hasStatusline) {
-    settings.hooks['Notification'].push({
-      command: `node "${statuslinePath}"`,
-      description: 'ShipFast statusline'
-    });
+  if (!hasSfHook(settings.hooks['Notification'], 'sf-statusline')) {
+    settings.hooks['Notification'].push(makeHookEntry('node ' + statuslinePath));
   }
 
   // Add first-run hook (auto-train on first /sf-* command in untrained repo)
   settings.hooks['PreToolUse'] = settings.hooks['PreToolUse'] || [];
   const firstRunPath = path.join(hooksDir, 'sf-first-run.js');
-  const hasFirstRun = (settings.hooks['PreToolUse'] || []).some(
-    h => (typeof h === 'string' ? h : h.command || '').includes('sf-first-run')
-  );
-  if (!hasFirstRun) {
-    settings.hooks['PreToolUse'].push({
-      command: `node "${firstRunPath}"`,
-      description: 'ShipFast auto-train on first run in new repo'
-    });
+  if (!hasSfHook(settings.hooks['PreToolUse'], 'sf-first-run')) {
+    settings.hooks['PreToolUse'].push(makeHookEntry('node ' + firstRunPath));
   }
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
