@@ -4,9 +4,9 @@
 
 **Autonomous context-engineered development system.**
 
-**5 agents. 6 commands. SQLite brain. 3-5x cheaper than GSD.**
+**5 agents. 12 commands. SQLite brain. 70-90% less tokens than alternatives.**
 
-Supports: Claude Code, OpenCode, Gemini CLI, Codex, Cursor, Windsurf
+Supports 14 runtimes: Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, CodeBuddy, Cline
 
 </div>
 
@@ -20,52 +20,67 @@ ShipFast flips the model:
 
 > **Compute context on-demand. Never store what you can derive. Never ask what you can infer.**
 
-| | GSD | ShipFast |
+| | Alternatives | ShipFast |
 |---|---|---|
-| **Commands** | 50+ | 6 |
+| **Commands** | 50+ | 12 |
 | **Agents** | 31 specialized | 5 composable |
 | **Context storage** | ~15 markdown files per phase | 1 SQLite database |
-| **Tokens per feature** | 95K-150K | 19K-30K |
+| **Tokens per feature** | 95K-150K | 3K-40K |
 | **Trivial task overhead** | Full ceremony | Near-zero |
 | **Cross-session memory** | Flat STATE.md | Weighted learnings with decay |
 | **Staleness detection** | None | Content hash auto-detect |
+| **Learning from mistakes** | None | Self-improving with confidence scoring |
 
 ---
 
 ## Install
 
+### Step 1: Install globally (one time)
+
 ```bash
-# Interactive multi-select (pick one or many runtimes)
-npx @shipfast-ai/shipfast
+npm install -g @shipfast-ai/shipfast
+```
 
-# Install for specific runtimes
-npx @shipfast-ai/shipfast --claude
-npx @shipfast-ai/shipfast --opencode
-npx @shipfast-ai/shipfast --gemini
-npx @shipfast-ai/shipfast --kilo
-npx @shipfast-ai/shipfast --codex
-npx @shipfast-ai/shipfast --copilot
-npx @shipfast-ai/shipfast --cursor
-npx @shipfast-ai/shipfast --windsurf
-npx @shipfast-ai/shipfast --antigravity
-npx @shipfast-ai/shipfast --augment
-npx @shipfast-ai/shipfast --trae
-npx @shipfast-ai/shipfast --qwen
-npx @shipfast-ai/shipfast --codebuddy
-npx @shipfast-ai/shipfast --cline
+### Step 2: Setup for your AI tool
 
-# Multiple runtimes at once
-npx @shipfast-ai/shipfast --claude --cursor --gemini
+```bash
+# Interactive — pick runtimes from a list
+shipfast install
 
-# All 14 runtimes
-npx @shipfast-ai/shipfast --all
+# Or specify directly
+shipfast install --claude
+shipfast install --cursor
+shipfast install --gemini
+shipfast install --all              # all 14 runtimes
 
-# Scope: --global (all projects) or --local (this project only)
-npx @shipfast-ai/shipfast --claude --global    # ~/.claude/
-npx @shipfast-ai/shipfast --claude --local     # .claude/ in current project
+# Multiple at once
+shipfast install --claude --cursor --gemini
+```
 
-# Uninstall
-npx @shipfast-ai/shipfast --uninstall
+### Step 3: Index your codebase (per repo)
+
+```bash
+cd your-project
+shipfast init                       # indexes codebase into .shipfast/brain.db
+```
+
+### That's it. Start using `/sf-do` in your AI tool.
+
+### Other commands
+
+```bash
+shipfast init                       # index current repo (or re-index)
+shipfast train                      # alias for init
+shipfast update                     # update to latest version
+shipfast uninstall                  # remove from all runtimes
+shipfast help                       # show all CLI commands
+```
+
+### Also works with npx (no global install needed)
+
+```bash
+npx @shipfast-ai/shipfast install --claude
+npx @shipfast-ai/shipfast init
 ```
 
 ---
