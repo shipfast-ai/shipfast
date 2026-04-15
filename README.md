@@ -77,7 +77,7 @@ shipfast help           # Show all commands
 
 ## How It Works
 
-Already have code? `shipfast init` indexes your codebase in under 1 second — functions, types, imports, git history. No parallel agents, no markdown files. Just a SQLite database.
+Already have code? `shipfast init` indexes your codebase in under 1 second — functions, types, imports, git history. All stored in a SQLite database.
 
 ### 1. Plan Phase
 
@@ -168,7 +168,7 @@ Creates branch, generates PR description from brain.db (decisions, tasks, change
 /sf-milestone new v2.0
 ```
 
-Or for simple tasks, skip the ceremony:
+Or for simple tasks, just run directly:
 
 ```
 /sf-do fix the login bug
@@ -244,7 +244,7 @@ All exposed as MCP tools: `brain_arch_layers`, `brain_arch_folders`, `brain_arch
 
 ## Agents
 
-5 composable agents replace 31 specialized ones. Same behavioral rules, 90% fewer tokens.
+5 composable agents with compressed behavioral rules.
 
 | Agent | Role | Model | Key Rules |
 |---|---|---|---|

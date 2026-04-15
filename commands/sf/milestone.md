@@ -11,7 +11,7 @@ allowed-tools:
 <objective>
 Manage project milestones. Complete the current milestone (archive phases, tag release)
 or start a new one (reset phases, increment version).
-All state tracked in brain.db — no markdown files.
+All state tracked in brain.db.
 </objective>
 
 <process>
