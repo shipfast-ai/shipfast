@@ -102,7 +102,7 @@ function install(targetDir, runtimeName, isGlobal) {
   // Copy core module
   const coreDir = path.join(sfDir, 'core');
   fs.mkdirSync(coreDir, { recursive: true });
-  for (const file of ['autopilot.cjs', 'budget.cjs', 'checkpoint.cjs', 'learning.cjs']) {
+  for (const file of ['autopilot.cjs', 'budget.cjs', 'checkpoint.cjs', 'learning.cjs', 'ambiguity.cjs', 'context-builder.cjs', 'conversation.cjs', 'executor.cjs', 'git-intel.cjs', 'guardrails.cjs', 'model-selector.cjs', 'retry.cjs', 'session.cjs', 'skip-logic.cjs', 'templates.cjs', 'verify.cjs']) {
     copyFile(path.join(__dirname, '..', 'core', file), path.join(coreDir, file));
   }
 
@@ -116,7 +116,7 @@ function install(targetDir, runtimeName, isGlobal) {
   // Copy commands
   const sfCommandsDir = path.join(commandsDir, 'sf');
   fs.mkdirSync(sfCommandsDir, { recursive: true });
-  for (const file of ['do.md', 'status.md', 'undo.md', 'config.md', 'brain.md', 'learn.md']) {
+  for (const file of ['do.md', 'status.md', 'undo.md', 'config.md', 'brain.md', 'learn.md', 'discuss.md', 'project.md', 'resume.md', 'ship.md', 'help.md', 'milestone.md']) {
     copyFile(path.join(__dirname, '..', 'commands', 'sf', file), path.join(sfCommandsDir, file));
   }
 
