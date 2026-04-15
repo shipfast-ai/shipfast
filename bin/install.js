@@ -112,6 +112,9 @@ function installFor(key, runtime) {
   const coreDir = path.join(sfDir, 'core');
   for (const d of [sfDir, brainDir, coreDir]) fs.mkdirSync(d, { recursive: true });
 
+  // Write version file so /sf-status can read it
+  fs.writeFileSync(path.join(sfDir, 'version'), pkg.version);
+
   for (const f of ['schema.sql', 'index.cjs', 'indexer.cjs'])
     copy('brain/' + f, path.join(brainDir, f));
 
