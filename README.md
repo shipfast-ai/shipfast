@@ -4,7 +4,7 @@
 
 **Autonomous context-engineered development system with SQLite brain.**
 
-**5 agents. 14 commands. Per-task fresh context. 70-90% fewer tokens.**
+**5 agents. 17 commands. Per-task fresh context. 70-90% fewer tokens.**
 
 Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, CodeBuddy, Cline
 
@@ -208,10 +208,35 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 | `requirements` | REQ-IDs mapped to phases for tracing |
 | `checkpoints` | Git stash refs for rollback |
 | `hot_files` | Most frequently changed files from git history |
+| `architecture` | Auto-computed layers from import graph (zero hardcoding) |
+| `folders` | Directory roles auto-detected from import patterns |
 
 **Incremental indexing**: only re-indexes changed files (~300ms). Deleted files auto-cleaned.
 
-**MCP Server**: brain.db is exposed as structured MCP tools — `brain_stats`, `brain_search`, `brain_decisions`, `brain_learnings`, etc. LLMs call these instead of improvising SQL.
+**MCP Server**: brain.db is exposed as 15 structured MCP tools. LLMs call these instead of improvising SQL.
+
+---
+
+## Architecture Intelligence
+
+ShipFast auto-derives architecture layers from the import graph — **zero hardcoded folder patterns**. Works with any project structure, any language.
+
+**How it works**:
+1. BFS from entry points (files nothing imports) assigns layer depth
+2. Fuzzy import resolution handles `@/`, `~/`, and alias paths
+3. Folder roles detected from aggregate import/export ratios
+4. Recomputed on every `shipfast init` (instant)
+
+**What it produces**:
+
+- **Layer 0** (entry): files nothing imports — pages, routes, App.tsx
+- **Layer 1-N** (deeper): each layer imported by the layer above
+- **Leaf layer**: files that import nothing — types, constants
+- **Folder roles**: entry (imports many), shared (imported by many), consumer, leaf, foundation
+
+**Why it matters**: Scout knows which layer a file lives in. Builder knows to check upstream consumers before modifying a shared layer. Critic can detect skip-layer violations. Verifier traces data flow from entry to data source.
+
+All exposed as MCP tools: `brain_arch_layers`, `brain_arch_folders`, `brain_arch_file`, `brain_arch_data_flow`, `brain_arch_most_connected`.
 
 ---
 
@@ -247,6 +272,7 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 |---|---|
 | `/sf-do <task>` | Execute a task. Auto-detects complexity: trivial → medium → complex |
 | `/sf-plan <task>` | Research (Scout) + Plan (Architect). Stores tasks in brain.db |
+| `/sf-check-plan` | Verify plan before execution: scope, consumers, deps, STRIDE threats |
 | `/sf-verify` | Verify completed work: artifacts, data flow, stubs, build, consumers |
 | `/sf-discuss <task>` | Detect ambiguity, ask targeted questions, lock decisions |
 
@@ -254,8 +280,9 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 
 | Command | What it does |
 |---|---|
-| `/sf-project <desc>` | Decompose large project into phases with REQ-ID tracing |
+| `/sf-project <desc>` | Decompose large project into phases with REQ-ID tracing + 4 parallel researchers |
 | `/sf-milestone [complete\|new]` | Complete current milestone or start next version |
+| `/sf-workstream <action>` | Parallel feature branches: create, list, switch, complete |
 
 ### Shipping
 
@@ -277,6 +304,7 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 |---|---|
 | `/sf-brain <query>` | Query knowledge graph: files, decisions, learnings, hot files |
 | `/sf-learn <pattern>` | Teach a reusable pattern (persists across sessions) |
+| `/sf-map` | Generate codebase report: architecture layers, hot files, co-change clusters |
 
 ### Config
 
@@ -291,8 +319,8 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 
 ```
 Simple:     /sf-do fix the typo in header
-Standard:   /sf-plan add dark mode → /sf-do → /sf-verify
-Complex:    /sf-project Build billing → /sf-discuss → /sf-plan → /sf-do → /sf-verify → /sf-ship
+Standard:   /sf-plan add dark mode → /sf-check-plan → /sf-do → /sf-verify
+Complex:    /sf-project Build billing → /sf-discuss → /sf-plan → /sf-check-plan → /sf-do → /sf-verify → /sf-ship
 ```
 
 ---
