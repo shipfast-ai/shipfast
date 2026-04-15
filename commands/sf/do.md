@@ -51,19 +51,13 @@ Classify the user's input using these heuristics:
 
 ---
 
-## STEP 2: INIT BRAIN (0 tokens)
+## STEP 2: CONTEXT GATHERING (0 tokens)
 
-If `.shipfast/brain.db` does not exist:
-```bash
-node [shipfast-path]/brain/indexer.cjs [cwd]
-```
+**FIX #5: Git diff awareness** — Run `git diff --name-only HEAD` to see what files changed since last commit. Pass this list to Scout so it focuses on recent changes instead of searching blindly.
 
-If brain.db exists, run incremental index on changed files only:
-```bash
-node [shipfast-path]/brain/indexer.cjs [cwd] --changed-only
-```
+If `.shipfast/brain.db` does not exist, tell user to run `shipfast init` first.
 
-This takes ~300ms and ensures the knowledge graph is current.
+**Store the changed files list** — use it in Step 4 (Scout) and Step 6 (Builder) for targeted context.
 
 ---
 
@@ -208,14 +202,21 @@ If brain.db has requirements for this phase:
 
 ---
 
-## STEP 8: LEARN (0 tokens)
+## STEP 8: LEARN
 
-Automatically update brain.db:
-- **Decisions**: Extract "chose X", "decided on Y" patterns from the session
-- **Learnings**: Record any error→fix patterns for future sessions
-- **Conventions**: If Builder matched a pattern not yet in brain.db, store it
-- **Boost**: Increase confidence of learnings that helped this session
-- **Prune**: Remove old low-confidence learnings that haven't been used
+**FIX #9/#10: Explicitly record decisions and learnings using these exact commands:**
+
+If you made any architectural decisions during this task, record each one:
+```bash
+sqlite3 .shipfast/brain.db "INSERT INTO decisions (question, decision, reasoning, phase) VALUES ('[what was decided]', '[the choice]', '[why]', '[current task]');"
+```
+
+If you encountered and fixed any errors, record the pattern:
+```bash
+sqlite3 .shipfast/brain.db "INSERT INTO learnings (pattern, problem, solution, domain, source, confidence) VALUES ('[short pattern name]', '[what went wrong]', '[what fixed it]', '[domain]', 'auto', 0.5);"
+```
+
+**These are not optional.** If decisions were made or errors were fixed, you MUST record them. This is how ShipFast gets smarter over time.
 
 ---
 

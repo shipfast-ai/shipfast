@@ -56,6 +56,7 @@ function main() {
     case 'train':    return cmdInit();
     case 'update':   return cmdUpdate();
     case 'uninstall': return cmdUninstall();
+    case 'status':   return cmdStatus();
     case 'help':
     case 'h':        return cmdHelp();
     case 'version':
@@ -168,6 +169,8 @@ function printDone(count) {
 
 function cmdInit() {
   const cwd = process.cwd();
+  const fresh = process.argv.includes('--fresh');
+
   if (!fs.existsSync(path.join(cwd, '.git'))) {
     console.log(`${red}Not a git repo.${reset} Run this inside a git repository.\n`);
     return;
@@ -180,10 +183,19 @@ function cmdInit() {
   }
 
   const brainExists = fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'));
-  console.log(brainExists ? 'Re-indexing codebase...' : 'Indexing codebase...');
+
+  // FIX #8: --fresh flag
+  if (fresh && brainExists) {
+    fs.unlinkSync(path.join(cwd, '.shipfast', 'brain.db'));
+    console.log('Cleared existing brain.db');
+  }
+
+  console.log(brainExists && !fresh ? 'Re-indexing codebase...' : 'Indexing codebase...');
 
   try {
-    const out = safeRun(process.execPath, [indexer, cwd], {
+    const args = [indexer, cwd];
+    if (fresh) args.push('--fresh');
+    const out = safeRun(process.execPath, args, {
       encoding: 'utf8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe']
     });
     console.log(`${green}${out.trim()}${reset}`);
@@ -258,8 +270,13 @@ function cmdUninstall() {
           if (f.startsWith('sf-')) fs.unlinkSync(path.join(hd, f));
         }
       }
-      // Clean settings.json
+      // Clean settings.json hooks (#18: remove empty arrays too)
       cleanSettings(dir);
+      // FIX #7: Clean instruction files (CLAUDE.md, AGENTS.md, etc.)
+      cleanInstructionFile(path.join(dir, 'CLAUDE.md'));
+      cleanInstructionFile(path.join(dir, 'AGENTS.md'));
+      cleanInstructionFile(path.join(dir, 'copilot-instructions.md'));
+      cleanInstructionFile(path.join(dir, 'rules'));
       console.log(`  ${green}${runtime.name}${reset} — removed`);
       removed++;
     }
@@ -309,6 +326,8 @@ function cleanSettings(dir) {
 function cmdHelp() {
   console.log(`${bold}Terminal commands:${reset}\n`);
   console.log(`  ${cyan}shipfast init${reset}           Index current repo into .shipfast/brain.db`);
+  console.log(`  ${cyan}shipfast init --fresh${reset}   Full reindex (clears existing brain.db)`);
+  console.log(`  ${cyan}shipfast status${reset}         Show installed runtimes + brain status`);
   console.log(`  ${cyan}shipfast update${reset}         Update to latest + re-detect runtimes`);
   console.log(`  ${cyan}shipfast uninstall${reset}      Remove from all AI tools`);
   console.log(`  ${cyan}shipfast help${reset}           Show this help\n`);
@@ -322,7 +341,7 @@ function cmdHelp() {
   console.log(`  ${cyan}/sf-undo${reset}              Rollback a task`);
   console.log(`  ${cyan}/sf-brain${reset} <query>     Query the knowledge graph`);
   console.log(`  ${cyan}/sf-learn${reset} <pattern>   Teach a pattern or lesson`);
-  console.log(`  ${cyan}/sf-config${reset}            Set token budget and model tiers`);
+  console.log(`  ${cyan}/sf-config${reset}            Set model tiers and preferences`);
   console.log(`  ${cyan}/sf-milestone${reset}         Complete or start a milestone`);
   console.log(`  ${cyan}/sf-help${reset}              Show all commands\n`);
 }
@@ -366,6 +385,61 @@ function writeInstruction(filePath) {
   }
   content = content.trimEnd() + '\n\n' + block + '\n';
   fs.writeFileSync(filePath, content);
+}
+
+// FIX #7: Remove ShipFast block from instruction files during uninstall
+function cleanInstructionFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    let content = fs.readFileSync(filePath, 'utf8');
+    const marker = '<!-- ShipFast -->';
+    const close = '<!-- /ShipFast -->';
+    const s = content.indexOf(marker);
+    const e = content.indexOf(close);
+    if (s !== -1 && e !== -1) {
+      content = content.slice(0, s) + content.slice(e + close.length);
+      content = content.trim() + '\n';
+      fs.writeFileSync(filePath, content);
+    }
+  } catch {}
+}
+
+// FIX #17: CLI status command — show installed runtimes + version + brain status
+function cmdStatus() {
+  console.log(`${bold}Installed runtimes:${reset}\n`);
+  let count = 0;
+  for (const [key, runtime] of Object.entries(RUNTIMES)) {
+    const dir = path.join(os.homedir(), runtime.path);
+    if (fs.existsSync(path.join(dir, 'shipfast'))) {
+      console.log(`  ${green}${runtime.name}${reset} ${dim}${dir}${reset}`);
+      count++;
+    }
+  }
+  if (count === 0) {
+    console.log(`  ${dim}(none)${reset}`);
+  }
+
+  // Brain status for current directory
+  const cwd = process.cwd();
+  const brainPath = path.join(cwd, '.shipfast', 'brain.db');
+  console.log(`\n${bold}Current repo:${reset} ${cwd}\n`);
+  if (fs.existsSync(brainPath)) {
+    try {
+      const out = safeRun('sqlite3', [brainPath,
+        "SELECT 'nodes', COUNT(*) FROM nodes UNION ALL SELECT 'edges', COUNT(*) FROM edges UNION ALL SELECT 'decisions', COUNT(*) FROM decisions UNION ALL SELECT 'learnings', COUNT(*) FROM learnings;"
+      ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+      console.log(`  Brain: ${green}indexed${reset}`);
+      out.trim().split('\n').forEach(line => {
+        const [k, v] = line.split('|');
+        console.log(`  ${dim}${k}: ${v}${reset}`);
+      });
+    } catch {
+      console.log(`  Brain: ${green}exists${reset} (.shipfast/brain.db)`);
+    }
+  } else {
+    console.log(`  Brain: ${yellow}not indexed${reset} — run ${cyan}shipfast init${reset}`);
+  }
+  console.log('');
 }
 
 function copy(rel, dest) {

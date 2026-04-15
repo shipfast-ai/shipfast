@@ -461,21 +461,67 @@ function indexCodebase(cwd, opts = {}) {
     execFileSync('sqlite3', [dbPath], { input: sql, stdio: ['pipe', 'pipe', 'pipe'] });
   }
 
-  // Update hot files (separate transaction)
+  // FIX #1: Clean orphan nodes (deleted/renamed/moved files)
+  let cleaned = 0;
+  if (!changedOnly) {
+    const discoveredPaths = new Set(files.map(f => path.relative(cwd, f).replace(/\\/g, '/')));
+    const existingFiles = brain.query(cwd, "SELECT file_path FROM nodes WHERE kind = 'file'");
+    const orphans = existingFiles.filter(row => !discoveredPaths.has(row.file_path));
+
+    if (orphans.length > 0) {
+      const cleanSql = ['BEGIN TRANSACTION;'];
+      for (const orphan of orphans) {
+        const escaped = orphan.file_path.replace(/'/g, "''");
+        // Delete file node + all symbols from that file + all edges from/to that file
+        cleanSql.push(`DELETE FROM nodes WHERE file_path = '${escaped}';`);
+        cleanSql.push(`DELETE FROM edges WHERE source LIKE 'file:${escaped}%' OR target LIKE 'file:${escaped}%' OR source LIKE 'fn:${escaped}%' OR source LIKE 'type:${escaped}%' OR source LIKE 'class:${escaped}%' OR source LIKE 'component:${escaped}%';`);
+      }
+      cleanSql.push('COMMIT;');
+      const dbPath = brain.getBrainPath(cwd);
+      execFileSync('sqlite3', [dbPath], { input: cleanSql.join('\n'), stdio: ['pipe', 'pipe', 'pipe'] });
+      cleaned = orphans.length;
+    }
+  }
+
+  // FIX #6: Update hot files on every index
   brain.updateHotFiles(cwd);
 
+  // FIX #11: Run co-change analysis
+  try {
+    const gitIntelPath = path.join(__dirname, '..', 'core', 'git-intel.cjs');
+    if (fs.existsSync(gitIntelPath)) {
+      const gitIntel = require(gitIntelPath);
+      gitIntel.analyzeCoChanges(cwd, 200);
+    }
+  } catch { /* git-intel optional */ }
+
   const elapsed = Date.now() - startTime;
-  return { files: files.length, indexed, skipped, nodes: totalNodes, edges: totalEdges, statements: batch.count, elapsed_ms: elapsed };
+  return { files: files.length, indexed, skipped, cleaned, nodes: totalNodes, edges: totalEdges, statements: batch.count, elapsed_ms: elapsed };
 }
 
 // CLI mode
 if (require.main === module) {
   const args = process.argv.slice(2);
   const changedOnly = args.includes('--changed-only');
+  const fresh = args.includes('--fresh');
   const cwd = args.find(a => !a.startsWith('-')) || process.cwd();
-  console.log(`Indexing ${cwd}${changedOnly ? ' (changed only)' : ''}...`);
+
+  // FIX #8: --fresh flag deletes brain.db first
+  if (fresh) {
+    const dbPath = path.join(cwd, '.shipfast', 'brain.db');
+    if (fs.existsSync(dbPath)) {
+      fs.unlinkSync(dbPath);
+      console.log('Cleared existing brain.db');
+    }
+  }
+
+  console.log(`Indexing ${cwd}...`);
   const result = indexCodebase(cwd, { verbose: true, changedOnly });
-  console.log(`Done in ${result.elapsed_ms}ms: ${result.indexed} files (${result.skipped} unchanged), ${result.nodes} symbols, ${result.edges} edges, ${result.statements} SQL statements`);
+  const parts = [`Done in ${result.elapsed_ms}ms: ${result.indexed} files indexed`];
+  if (result.skipped) parts.push(`${result.skipped} unchanged`);
+  if (result.cleaned) parts.push(`${result.cleaned} deleted files cleaned`);
+  parts.push(`${result.nodes} symbols, ${result.edges} edges`);
+  console.log(parts.join(', '));
 }
 
 module.exports = { indexCodebase, discoverFiles, discoverChangedFiles };

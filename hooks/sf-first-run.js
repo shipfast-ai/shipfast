@@ -2,68 +2,60 @@
 /**
  * ShipFast First-Run Hook — PreToolUse
  *
- * Detects when brain.db doesn't exist in the current repo.
- * Injects a message telling the agent to run the indexer first.
- * Only fires once per repo — after indexing, brain.db exists and this becomes a no-op.
+ * FIX #3: Exits immediately for non-Skill tools (near-zero overhead).
+ * Only injects brain indexing instruction when:
+ * - Tool is Skill (sf-* command)
+ * - brain.db doesn't exist for this repo
+ * - This is a git repo
+ *
+ * After user runs `shipfast init`, brain.db exists and this becomes a no-op.
  */
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 let input = '';
-const stdinTimeout = setTimeout(() => process.exit(0), 10000);
+const stdinTimeout = setTimeout(() => process.exit(0), 5000);
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
   clearTimeout(stdinTimeout);
   try {
     const data = JSON.parse(input);
+
+    // FIX #3: Fast exit for non-Skill tools (99% of calls)
+    if ((data.tool_name || '') !== 'Skill') process.exit(0);
+
     const cwd = data.cwd || process.cwd();
 
-    // Only trigger for sf-* skill invocations
-    const toolName = data.tool_name || '';
-    if (toolName !== 'Skill') {
-      process.exit(0);
-    }
+    // Already indexed — no-op
+    if (fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'))) process.exit(0);
 
-    // Check if brain.db exists
-    const brainPath = path.join(cwd, '.shipfast', 'brain.db');
-    if (fs.existsSync(brainPath)) {
-      process.exit(0); // already trained, no-op
-    }
+    // Not a git repo — skip
+    if (!fs.existsSync(path.join(cwd, '.git'))) process.exit(0);
 
-    // Check if this is a git repo
-    if (!fs.existsSync(path.join(cwd, '.git'))) {
-      process.exit(0); // not a repo, skip
-    }
+    // Find indexer in global install locations
+    const home = os.homedir();
+    const indexer = [
+      path.join(home, '.claude', 'shipfast', 'brain', 'indexer.cjs'),
+      path.join(home, '.cursor', 'shipfast', 'brain', 'indexer.cjs'),
+      path.join(home, '.gemini', 'shipfast', 'brain', 'indexer.cjs'),
+      path.join(home, '.codex', 'shipfast', 'brain', 'indexer.cjs'),
+      path.join(home, '.config', 'opencode', 'shipfast', 'brain', 'indexer.cjs'),
+    ].find(p => fs.existsSync(p));
 
-    // Find the indexer
-    const possiblePaths = [
-      path.join(cwd, '.claude', 'shipfast', 'brain', 'indexer.cjs'),
-      path.join(cwd, '.cursor', 'shipfast', 'brain', 'indexer.cjs'),
-      path.join(cwd, '.gemini', 'shipfast', 'brain', 'indexer.cjs'),
-      path.join(require('os').homedir(), '.claude', 'shipfast', 'brain', 'indexer.cjs'),
-    ];
+    if (!indexer) process.exit(0);
 
-    const indexerPath = possiblePaths.find(p => fs.existsSync(p));
-    if (!indexerPath) {
-      process.exit(0); // can't find indexer
-    }
-
-    // Inject training instruction
-    const output = {
+    process.stdout.write(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PreToolUse',
-        additionalContext: 'SHIPFAST FIRST RUN: brain.db not found for this repo. ' +
-          'Before proceeding with the task, run the indexer to train the brain:\n' +
-          '```bash\nnode "' + indexerPath + '" "' + cwd + '"\n```\n' +
-          'This indexes the codebase (~1 second) and creates .shipfast/brain.db. ' +
-          'Also add ".shipfast/" to .gitignore if not already there. ' +
-          'After indexing, proceed with the user\'s command normally.'
+        additionalContext: 'SHIPFAST: brain.db not found for this repo. ' +
+          'Run this first to index the codebase:\n' +
+          '```bash\nnode "' + indexer + '" "' + cwd + '"\n```\n' +
+          'Then proceed with the command.'
       }
-    };
-
-    process.stdout.write(JSON.stringify(output));
+    }));
   } catch {
     process.exit(0);
   }
