@@ -2,13 +2,7 @@
 name: sf-scout
 description: Reconnaissance agent. Reads code, finds files, fetches docs. Gathers precisely what's needed — nothing more.
 model: haiku
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
-  - WebSearch
-  - WebFetch
+tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
 ---
 
 <role>

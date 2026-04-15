@@ -46,7 +46,7 @@ const RUNTIMES = {
   codex:        { dir: '.codex',      global: '.codex',                          name: 'Codex' },
   copilot:      { dir: '.github',     global: '.copilot',                        name: 'Copilot' },
   cursor:       { dir: '.cursor',     global: '.cursor',                         name: 'Cursor' },
-  windsurf:     { dir: '.windsurf',   global: '.windsurf',                       name: 'Windsurf' },
+  windsurf:     { dir: '.windsurf',   global: path.join('.codeium', 'windsurf'),  name: 'Windsurf' },
   antigravity:  { dir: '.agent',      global: path.join('.gemini', 'antigravity'), name: 'Antigravity' },
   augment:      { dir: '.augment',    global: '.augment',                        name: 'Augment' },
   trae:         { dir: '.trae',       global: '.trae',                           name: 'Trae' },
@@ -153,11 +153,29 @@ function install(targetDir, runtimeName, isGlobal) {
     copyFile(path.join(__dirname, '..', 'hooks', file), path.join(hooksDir, file));
   }
 
-  // Update settings.json with hooks
-  updateSettings(targetDir, runtimeName, hooksDir);
+  // Runtime-specific config
+  // Claude Code, OpenCode, Kilo use settings.json + hooks + CLAUDE.md
+  // Gemini uses .gemini/ with AGENTS.md
+  // Copilot uses .github/copilot-instructions.md
+  // Cursor uses .cursor/rules and .cursorrules
+  // Others: just copy files, instructions go in their native format
 
-  // Update CLAUDE.md (or equivalent) with ShipFast instructions
-  updateClaudeMd(targetDir, isGlobal);
+  const claudeCompatible = ['Claude Code', 'OpenCode', 'Kilo'];
+  const geminiCompatible = ['Gemini CLI', 'Antigravity'];
+
+  if (claudeCompatible.includes(runtimeName)) {
+    updateSettings(targetDir, runtimeName, hooksDir);
+    updateInstructionFile(targetDir, isGlobal, 'CLAUDE.md');
+  } else if (geminiCompatible.includes(runtimeName)) {
+    updateInstructionFile(targetDir, isGlobal, 'AGENTS.md');
+  } else if (runtimeName === 'Copilot') {
+    updateInstructionFile(targetDir, isGlobal, 'copilot-instructions.md');
+  } else if (runtimeName === 'Cursor') {
+    updateInstructionFile(targetDir, isGlobal, 'rules');
+  } else {
+    // For other runtimes, write a generic instruction file
+    updateInstructionFile(targetDir, isGlobal, 'AGENTS.md');
+  }
 
   console.log(`Commands available:`);
   console.log(`  ${cyan}/sf-do${reset}         The one command — describe what you want`);
@@ -340,10 +358,10 @@ function updateSettings(targetDir, runtimeName, hooksDir) {
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 }
 
-function updateClaudeMd(targetDir, isGlobal) {
-  const claudeMdPath = isGlobal
-    ? path.join(targetDir, 'CLAUDE.md')
-    : path.join(process.cwd(), 'CLAUDE.md');
+function updateInstructionFile(targetDir, isGlobal, filename) {
+  const filePath = isGlobal
+    ? path.join(targetDir, filename)
+    : path.join(process.cwd(), filename);
 
   const marker = '<!-- ShipFast Configuration -->';
   const closeMarker = '<!-- /ShipFast Configuration -->';
@@ -374,8 +392,8 @@ This project uses ShipFast for autonomous development.
 ${closeMarker}`;
 
   let content = '';
-  if (fs.existsSync(claudeMdPath)) {
-    content = fs.readFileSync(claudeMdPath, 'utf8');
+  if (fs.existsSync(filePath)) {
+    content = fs.readFileSync(filePath, 'utf8');
     // Remove existing block
     const startIdx = content.indexOf(marker);
     const endIdx = content.indexOf(closeMarker);
@@ -385,7 +403,7 @@ ${closeMarker}`;
   }
 
   content = content.trimEnd() + '\n\n' + sfBlock + '\n';
-  fs.writeFileSync(claudeMdPath, content);
+  fs.writeFileSync(filePath, content);
 }
 
 // ============================================================

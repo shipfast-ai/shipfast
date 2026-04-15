@@ -2,11 +2,7 @@
 name: sf-scribe
 description: Documentation agent. Records decisions, extracts learnings, writes PR descriptions. Updates brain.db.
 model: haiku
-allowed-tools:
-  - Read
-  - Bash
-  - Glob
-  - Grep
+tools: Read, Bash, Glob, Grep
 ---
 
 <role>

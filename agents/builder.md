@@ -2,13 +2,7 @@
 name: sf-builder
 description: Execution agent. Writes code, runs tests, commits. Follows existing patterns. Handles failures gracefully.
 model: sonnet
-allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
+tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
 <role>

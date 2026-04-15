@@ -2,11 +2,7 @@
 name: sf-critic
 description: Review agent. Audits code changes for bugs, security issues, and quality. Diff-only review.
 model: haiku
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
+tools: Read, Glob, Grep, Bash
 ---
 
 <role>

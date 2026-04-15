@@ -2,11 +2,7 @@
 name: sf-architect
 description: Planning agent. Creates minimal, ordered task lists using goal-backward methodology.
 model: sonnet
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
+tools: Read, Glob, Grep, Bash
 ---
 
 <role>
