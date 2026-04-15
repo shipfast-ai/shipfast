@@ -121,7 +121,7 @@ function install(targetDir, runtimeName, isGlobal) {
   }
 
   // Copy hooks
-  for (const file of ['sf-context-monitor.js', 'sf-statusline.js']) {
+  for (const file of ['sf-context-monitor.js', 'sf-statusline.js', 'sf-first-run.js']) {
     copyFile(path.join(__dirname, '..', 'hooks', file), path.join(hooksDir, file));
   }
 
@@ -133,13 +133,94 @@ function install(targetDir, runtimeName, isGlobal) {
 
   console.log(`${green}${bold}Installed!${reset}\n`);
   console.log(`Commands available:`);
-  console.log(`  ${cyan}/sf-do${reset}      The one command — describe what you want`);
-  console.log(`  ${cyan}/sf-status${reset}  Show progress and token usage`);
-  console.log(`  ${cyan}/sf-undo${reset}    Rollback a task`);
-  console.log(`  ${cyan}/sf-config${reset}  Set token budget and model tiers`);
-  console.log(`  ${cyan}/sf-brain${reset}   Query the knowledge graph`);
-  console.log(`  ${cyan}/sf-learn${reset}   Teach a pattern or lesson\n`);
-  console.log(`${dim}Start with: /sf-do add user authentication${reset}\n`);
+  console.log(`  ${cyan}/sf-do${reset}         The one command — describe what you want`);
+  console.log(`  ${cyan}/sf-discuss${reset}    Clarify ambiguity before planning`);
+  console.log(`  ${cyan}/sf-project${reset}    Decompose a large project into phases`);
+  console.log(`  ${cyan}/sf-ship${reset}       Create PR from completed work`);
+  console.log(`  ${cyan}/sf-status${reset}     Show progress and token usage`);
+  console.log(`  ${cyan}/sf-resume${reset}     Resume work from previous session`);
+  console.log(`  ${cyan}/sf-undo${reset}       Rollback a task`);
+  console.log(`  ${cyan}/sf-brain${reset}      Query the knowledge graph`);
+  console.log(`  ${cyan}/sf-learn${reset}      Teach a pattern or lesson`);
+  console.log(`  ${cyan}/sf-config${reset}     Set token budget and model tiers`);
+  console.log(`  ${cyan}/sf-milestone${reset}  Complete or start a milestone`);
+  console.log(`  ${cyan}/sf-help${reset}       Show all commands\n`);
+
+  // Auto-train: detect if this is a git repo and offer to index
+  if (!isGlobal) {
+    trainRepo(process.cwd(), sfDir);
+  } else {
+    // For global install, check if cwd is a git repo
+    const cwd = process.cwd();
+    if (isGitRepo(cwd)) {
+      trainRepo(cwd, path.join(cwd, getDirName(selectedRuntime), 'shipfast'));
+    } else {
+      console.log(`${dim}Not a git repo — brain will auto-index on first /sf-do in any repo.${reset}\n`);
+    }
+  }
+}
+
+function isGitRepo(dir) {
+  return fs.existsSync(path.join(dir, '.git'));
+}
+
+function trainRepo(cwd, sfDir) {
+  if (!isGitRepo(cwd)) {
+    console.log(`${dim}Not a git repo — brain will auto-index on first /sf-do in any repo.${reset}\n`);
+    return;
+  }
+
+  const brainDbPath = path.join(cwd, '.shipfast', 'brain.db');
+  if (fs.existsSync(brainDbPath)) {
+    console.log(`${dim}Brain already trained for this repo.${reset}\n`);
+    return;
+  }
+
+  // Count indexable files to show scope
+  const indexerPath = path.join(sfDir, 'brain', 'indexer.cjs');
+  if (!fs.existsSync(indexerPath)) {
+    return;
+  }
+
+  console.log(`${yellow}Git repo detected.${reset}`);
+  console.log(`Training ShipFast brain on this codebase will:`);
+  console.log(`  - Index all source files (JS/TS/Rust/Python/Go)`);
+  console.log(`  - Build a knowledge graph (functions, types, imports)`);
+  console.log(`  - Analyze git history for change patterns`);
+  console.log(`  - Store everything in .shipfast/brain.db\n`);
+
+  // Auto-train without asking — it's fast and non-destructive
+  console.log(`${cyan}Training...${reset}`);
+  try {
+    const { execFileSync: run } = require('child_process');
+    const output = run(process.execPath, [indexerPath, cwd], {
+      encoding: 'utf8',
+      timeout: 120000,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    console.log(`${green}${output.trim()}${reset}\n`);
+
+    // Add .shipfast/ to .gitignore if not already there
+    addToGitignore(cwd);
+
+    console.log(`${dim}Brain is ready. Start with: /sf-do <describe your task>${reset}\n`);
+  } catch (err) {
+    console.log(`${yellow}Training skipped: ${err.message.slice(0, 100)}${reset}`);
+    console.log(`${dim}Brain will auto-index on first /sf-do.${reset}\n`);
+  }
+}
+
+function addToGitignore(cwd) {
+  const gitignorePath = path.join(cwd, '.gitignore');
+  const entry = '.shipfast/';
+
+  if (fs.existsSync(gitignorePath)) {
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    if (content.includes(entry)) return; // already there
+    fs.appendFileSync(gitignorePath, '\n# ShipFast brain (local, not committed)\n' + entry + '\n');
+  } else {
+    fs.writeFileSync(gitignorePath, '# ShipFast brain (local, not committed)\n' + entry + '\n');
+  }
 }
 
 function uninstall(targetDir, runtimeName) {
@@ -211,6 +292,19 @@ function updateSettings(targetDir, runtimeName, hooksDir) {
     settings.hooks['Notification'].push({
       command: `node "${statuslinePath}"`,
       description: 'ShipFast statusline'
+    });
+  }
+
+  // Add first-run hook (auto-train on first /sf-* command in untrained repo)
+  settings.hooks['PreToolUse'] = settings.hooks['PreToolUse'] || [];
+  const firstRunPath = path.join(hooksDir, 'sf-first-run.js');
+  const hasFirstRun = (settings.hooks['PreToolUse'] || []).some(
+    h => (typeof h === 'string' ? h : h.command || '').includes('sf-first-run')
+  );
+  if (!hasFirstRun) {
+    settings.hooks['PreToolUse'].push({
+      command: `node "${firstRunPath}"`,
+      description: 'ShipFast auto-train on first run in new repo'
     });
   }
 
