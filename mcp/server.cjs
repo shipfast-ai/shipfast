@@ -47,6 +47,41 @@ function run(sql) {
   } catch { return false; }
 }
 
+// Query linked repos (cross-repo search)
+function getLinkedPaths() {
+  try {
+    const rows = query("SELECT value FROM config WHERE key = 'linked_repos'");
+    if (rows.length && rows[0].value) return JSON.parse(rows[0].value);
+  } catch {}
+  return [];
+}
+
+function queryLinked(sql) {
+  // Query local brain first
+  const local = query(sql);
+
+  // Then query each linked repo's brain
+  const linked = getLinkedPaths();
+  const results = [...local];
+  for (const repoPath of linked) {
+    const linkedDb = path.join(repoPath, '.shipfast', 'brain.db');
+    if (!fs.existsSync(linkedDb)) continue;
+    try {
+      const r = safeRun('sqlite3', ['-json', linkedDb, sql], {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+      if (r) {
+        const parsed = JSON.parse(r);
+        // Tag results with source repo
+        const repoName = path.basename(repoPath);
+        parsed.forEach(row => { row._repo = repoName; });
+        results.push(...parsed);
+      }
+    } catch {}
+  }
+  return results;
+}
+
 function esc(s) {
   return s == null ? '' : String(s).replace(/'/g, "''");
 }
@@ -76,8 +111,24 @@ const TOOLS = {
     }
   },
 
+  brain_linked: {
+    description: 'Show linked repos and their brain.db status. Use shipfast link to connect repos for cross-repo search.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    handler() {
+      const linked = getLinkedPaths();
+      if (!linked.length) return { linked: [], message: 'No repos linked. Use: shipfast link ../other-repo' };
+      return {
+        linked: linked.map(p => ({
+          path: p,
+          name: path.basename(p),
+          hasBrain: fs.existsSync(path.join(p, '.shipfast', 'brain.db'))
+        }))
+      };
+    }
+  },
+
   brain_search: {
-    description: 'Search the codebase knowledge graph for files, functions, types, or components by name.',
+    description: 'Search the codebase knowledge graph for files, functions, types, or components by name. Searches local + all linked repos.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -88,7 +139,7 @@ const TOOLS = {
     },
     handler({ query: q, kind }) {
       const kindFilter = kind ? `AND kind = '${esc(kind)}'` : '';
-      return query(
+      return queryLinked(
         `SELECT kind, name, file_path, signature, line_start FROM nodes ` +
         `WHERE (name LIKE '%${esc(q)}%' OR file_path LIKE '%${esc(q)}%') ${kindFilter} ` +
         `ORDER BY kind, name LIMIT 30`

@@ -54,12 +54,11 @@ function main() {
   switch (command) {
     case 'init':
     case 'train':    return cmdInit();
+    case 'link':     return cmdLink();
+    case 'unlink':   return cmdUnlink();
     case 'update':   return cmdUpdate();
     case 'uninstall': return cmdUninstall();
     case 'status':   return cmdStatus();
-    case 'brain':    return cmdBrain();
-    case 'learn':    return cmdLearn();
-    case 'decide':   return cmdDecide();
     case 'help':
     case 'h':        return cmdHelp();
     case 'version':
@@ -229,6 +228,142 @@ function cmdInit() {
   }
 }
 
+// ============================================================
+// LINK — connect another repo's brain for cross-repo awareness
+// ============================================================
+
+function cmdLink() {
+  const targetPath = process.argv[3];
+  if (!targetPath) {
+    console.log(`${bold}Usage:${reset} shipfast link <path-to-other-repo>\n`);
+    console.log(`Links another repo's brain.db so agents can query across repos.`);
+    console.log(`Example: ${cyan}shipfast link ../backend${reset}\n`);
+
+    // Show current links
+    const cwd = process.cwd();
+    const brainDb = path.join(cwd, '.shipfast', 'brain.db');
+    if (fs.existsSync(brainDb)) {
+      try {
+        const links = safeRun('sqlite3', ['-json', brainDb, "SELECT value FROM config WHERE key = 'linked_repos';"], {
+          encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+        }).trim();
+        if (links) {
+          const parsed = JSON.parse(links);
+          if (parsed.length && parsed[0].value) {
+            const repos = JSON.parse(parsed[0].value);
+            if (repos.length) {
+              console.log(`${bold}Linked repos:${reset}`);
+              repos.forEach(r => {
+                const hasDb = fs.existsSync(path.join(r, '.shipfast', 'brain.db'));
+                console.log(`  ${hasDb ? green : red}${r}${reset} ${hasDb ? '(brain.db found)' : '(brain.db missing — run shipfast init there)'}`);
+              });
+              console.log('');
+            }
+          }
+        }
+      } catch {}
+    }
+    return;
+  }
+
+  const cwd = process.cwd();
+  const resolved = path.resolve(cwd, targetPath);
+
+  // Validate target
+  if (!fs.existsSync(resolved)) {
+    console.log(`${red}Path not found: ${resolved}${reset}\n`);
+    return;
+  }
+
+  if (!fs.existsSync(path.join(resolved, '.git'))) {
+    console.log(`${yellow}Warning: ${resolved} is not a git repo.${reset}`);
+  }
+
+  const targetBrain = path.join(resolved, '.shipfast', 'brain.db');
+  if (!fs.existsSync(targetBrain)) {
+    console.log(`${yellow}Warning: No brain.db found at ${resolved}. Run ${cyan}shipfast init${reset}${yellow} there first.${reset}`);
+  }
+
+  // Ensure local brain exists
+  const localBrain = path.join(cwd, '.shipfast', 'brain.db');
+  if (!fs.existsSync(localBrain)) {
+    console.log(`${red}No local brain.db. Run ${cyan}shipfast init${reset}${red} first.${reset}\n`);
+    return;
+  }
+
+  // Get existing links
+  let links = [];
+  try {
+    const existing = safeRun('sqlite3', ['-json', localBrain, "SELECT value FROM config WHERE key = 'linked_repos';"], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    if (existing) {
+      const parsed = JSON.parse(existing);
+      if (parsed.length && parsed[0].value) links = JSON.parse(parsed[0].value);
+    }
+  } catch {}
+
+  // Add if not already linked
+  if (links.includes(resolved)) {
+    console.log(`${dim}Already linked: ${resolved}${reset}\n`);
+    return;
+  }
+
+  links.push(resolved);
+  const escaped = JSON.stringify(links).replace(/'/g, "''");
+  safeRun('sqlite3', [localBrain, `INSERT OR REPLACE INTO config (key, value) VALUES ('linked_repos', '${escaped}');`], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  console.log(`${green}Linked: ${resolved}${reset}`);
+  console.log(`${dim}Agents will now query both local and linked brains.${reset}`);
+  console.log(`${dim}Total linked repos: ${links.length}${reset}\n`);
+}
+
+function cmdUnlink() {
+  const targetPath = process.argv[3];
+  const cwd = process.cwd();
+  const localBrain = path.join(cwd, '.shipfast', 'brain.db');
+
+  if (!fs.existsSync(localBrain)) {
+    console.log(`${red}No local brain.db.${reset}\n`);
+    return;
+  }
+
+  // Get existing links
+  let links = [];
+  try {
+    const existing = safeRun('sqlite3', ['-json', localBrain, "SELECT value FROM config WHERE key = 'linked_repos';"], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    if (existing) {
+      const parsed = JSON.parse(existing);
+      if (parsed.length && parsed[0].value) links = JSON.parse(parsed[0].value);
+    }
+  } catch {}
+
+  if (!targetPath) {
+    // Unlink all
+    if (links.length === 0) {
+      console.log(`${dim}No linked repos.${reset}\n`);
+      return;
+    }
+    safeRun('sqlite3', [localBrain, "DELETE FROM config WHERE key = 'linked_repos';"], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    console.log(`${green}Unlinked all ${links.length} repos.${reset}\n`);
+    return;
+  }
+
+  const resolved = path.resolve(cwd, targetPath);
+  links = links.filter(l => l !== resolved);
+  const escaped = JSON.stringify(links).replace(/'/g, "''");
+  safeRun('sqlite3', [localBrain, `INSERT OR REPLACE INTO config (key, value) VALUES ('linked_repos', '${escaped}');`], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+  console.log(`${green}Unlinked: ${resolved}${reset}\n`);
+}
+
 function findIndexer() {
   // Check all global runtime dirs + package source
   const paths = Object.values(RUNTIMES)
@@ -338,12 +473,14 @@ function cleanSettings(dir) {
 
 function cmdHelp() {
   console.log(`${bold}Terminal commands:${reset}\n`);
-  console.log(`  ${cyan}shipfast init${reset}           Index current repo into .shipfast/brain.db`);
-  console.log(`  ${cyan}shipfast init --fresh${reset}   Full reindex (clears existing brain.db)`);
-  console.log(`  ${cyan}shipfast status${reset}         Show installed runtimes + brain status`);
-  console.log(`  ${cyan}shipfast update${reset}         Update to latest + re-detect runtimes`);
-  console.log(`  ${cyan}shipfast uninstall${reset}      Remove from all AI tools`);
-  console.log(`  ${cyan}shipfast help${reset}           Show this help\n`);
+  console.log(`  ${cyan}shipfast init${reset}             Index current repo into .shipfast/brain.db`);
+  console.log(`  ${cyan}shipfast init --fresh${reset}     Full reindex (clears existing brain.db)`);
+  console.log(`  ${cyan}shipfast link <path>${reset}      Link another repo for cross-repo search`);
+  console.log(`  ${cyan}shipfast unlink [path]${reset}    Unlink a repo (or all)`);
+  console.log(`  ${cyan}shipfast status${reset}           Show installed runtimes + brain + links`);
+  console.log(`  ${cyan}shipfast update${reset}           Update to latest + re-detect runtimes`);
+  console.log(`  ${cyan}shipfast uninstall${reset}        Remove from all AI tools`);
+  console.log(`  ${cyan}shipfast help${reset}             Show this help\n`);
   console.log(`${bold}In your AI tool:${reset}\n`);
   console.log(`  ${cyan}/sf-do${reset} <task>         The one command — describe what you want`);
   console.log(`  ${cyan}/sf-discuss${reset} <task>    Clarify ambiguity before planning`);
