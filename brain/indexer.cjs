@@ -14,8 +14,87 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const brain = require('./index.cjs');
 
-const INDEXABLE = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.rs', '.py', '.go']);
-const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'target', '__pycache__', '.shipfast', '.planning', 'vendor', 'coverage']);
+// Source files worth indexing (code that humans write)
+const INDEXABLE = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',       // JavaScript / TypeScript
+  '.rs',                                                 // Rust
+  '.py', '.pyw',                                         // Python
+  '.go',                                                 // Go
+  '.java',                                               // Java
+  '.kt', '.kts',                                         // Kotlin
+  '.swift',                                              // Swift
+  '.c', '.h', '.cpp', '.cc', '.hpp', '.cxx',            // C / C++
+  '.rb',                                                 // Ruby
+  '.php',                                                // PHP
+  '.dart',                                               // Dart / Flutter
+  '.ex', '.exs',                                         // Elixir
+  '.scala', '.sc',                                       // Scala
+  '.zig',                                                // Zig
+  '.lua',                                                // Lua
+  '.r', '.R',                                            // R
+  '.jl',                                                 // Julia
+  '.cs',                                                 // C#
+  '.fs', '.fsx',                                         // F#
+  '.vue', '.svelte', '.astro',                           // Frontend frameworks
+]);
+
+// Directories to skip (build output, deps, caches, generated, IDE)
+const SKIP_DIRS = new Set([
+  // JavaScript / Node / Frontend
+  'node_modules', '.next', '.nuxt', '.svelte-kit', '.output', '.vuepress',
+  '.docusaurus', '.parcel-cache', '.cache', '.turbo', '.vite',
+  'jspm_packages', 'web_modules', 'bower_components', '.pnpm-store',
+  // Build output (all languages)
+  'dist', 'build', 'out', '_build', '.build', 'Release',
+  // Python
+  '__pycache__', '.venv', 'venv', 'env', '.eggs', 'eggs', 'sdist', 'wheels',
+  '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.hypothesis',
+  'htmlcov', '.ipynb_checkpoints', 'site-packages', '.pixi',
+  // Rust
+  'target',
+  // Go
+  'vendor',
+  // Java / Kotlin / Scala / Android
+  '.gradle', '.kotlin', '.mtj.tmp',
+  // Swift / iOS
+  'Pods', 'DerivedData', 'xcuserdata', 'Carthage',
+  // Ruby
+  '.bundle',
+  // PHP
+  // 'vendor' already listed under Go
+  // Dart / Flutter
+  '.dart_tool', '.pub-cache',
+  // Elixir
+  'deps', '_build', 'cover',
+  // Git
+  '.git',
+  // IDE / Editor
+  '.vscode', '.idea', '.fleet', '.vs',
+  // Test / Coverage
+  'coverage', '.nyc_output', 'spec',
+  // ShipFast / GSD
+  '.shipfast', '.planning', '.gsd',
+  // Misc generated / temp
+  'tmp', 'temp', '.temp', '.serverless', '.firebase', '.dynamodb',
+  '.docker', 'log', 'logs',
+]);
+
+// Files to skip by exact name (lock files, generated, env, data)
+const SKIP_FILES = new Set([
+  // Lock files (every language)
+  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb',
+  'Cargo.lock', 'Gemfile.lock', 'poetry.lock', 'Pipfile.lock',
+  'composer.lock', 'pubspec.lock', 'go.sum', 'flake.lock',
+  'mix.lock', 'packages.lock.json',
+  // Env files
+  '.env', '.env.local', '.env.development', '.env.production', '.env.test',
+  // Generated / config (not source code)
+  '.DS_Store', 'Thumbs.db',
+  '.eslintcache', '.stylelintcache', '.prettiercache',
+  '.tsbuildinfo',
+  // Data files
+  'db.sqlite3', 'db.sqlite3-journal',
+]);
 
 // ============================================================
 // File discovery
@@ -34,8 +113,15 @@ function discoverFiles(rootDir, maxFiles = 2000) {
         if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
           walk(path.join(dir, entry.name), depth + 1);
         }
-      } else if (entry.isFile() && INDEXABLE.has(path.extname(entry.name))) {
-        files.push(path.join(dir, entry.name));
+      } else if (entry.isFile() && INDEXABLE.has(path.extname(entry.name)) && !SKIP_FILES.has(entry.name)) {
+        // Also skip minified/generated files by suffix pattern
+        const name = entry.name;
+        if (name.endsWith('.min.js') || name.endsWith('.min.css') || name.endsWith('.bundle.js') ||
+            name.endsWith('.chunk.js') || name.endsWith('.map') || name.endsWith('.d.ts')) {
+          // skip generated/minified files
+        } else {
+          files.push(path.join(dir, entry.name));
+        }
       }
     }
   }
