@@ -1,6 +1,6 @@
 ---
 name: sf:config
-description: "Set token budget, model tiers, and preferences."
+description: "Set model tiers and preferences."
 argument-hint: "<key> <value>"
 allowed-tools:
   - Read

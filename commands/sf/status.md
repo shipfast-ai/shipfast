@@ -1,6 +1,6 @@
 ---
 name: sf:status
-description: "Show current progress, token usage, and brain stats."
+description: "Show brain stats, tasks, and checkpoints."
 allowed-tools:
   - Bash
 ---
@@ -8,7 +8,7 @@ allowed-tools:
 Run this EXACT command. Do NOT modify it. Do NOT run any other commands. Do NOT add insights or commentary.
 
 ```bash
-sqlite3 .shipfast/brain.db "SELECT 'nodes' as k, COUNT(*) as v FROM nodes UNION ALL SELECT 'edges', COUNT(*) FROM edges UNION ALL SELECT 'decisions', COUNT(*) FROM decisions UNION ALL SELECT 'learnings', COUNT(*) FROM learnings UNION ALL SELECT 'tasks', COUNT(*) FROM tasks UNION ALL SELECT 'checkpoints', COUNT(*) FROM checkpoints UNION ALL SELECT 'hot_files', COUNT(*) FROM hot_files UNION ALL SELECT 'budget', COALESCE((SELECT value FROM config WHERE key='token_budget'), '100000') UNION ALL SELECT 'used', COALESCE((SELECT SUM(input_tokens + output_tokens) FROM token_usage), 0) UNION ALL SELECT 'active', (SELECT COUNT(*) FROM tasks WHERE status IN ('running','pending')) UNION ALL SELECT 'passed', (SELECT COUNT(*) FROM tasks WHERE status='passed');" 2>/dev/null || echo "No brain.db found. Run: shipfast init"
+sqlite3 .shipfast/brain.db "SELECT 'nodes' as k, COUNT(*) as v FROM nodes UNION ALL SELECT 'edges', COUNT(*) FROM edges UNION ALL SELECT 'decisions', COUNT(*) FROM decisions UNION ALL SELECT 'learnings', COUNT(*) FROM learnings UNION ALL SELECT 'tasks', COUNT(*) FROM tasks UNION ALL SELECT 'checkpoints', COUNT(*) FROM checkpoints UNION ALL SELECT 'hot_files', COUNT(*) FROM hot_files UNION ALL SELECT 'active', (SELECT COUNT(*) FROM tasks WHERE status IN ('running','pending')) UNION ALL SELECT 'passed', (SELECT COUNT(*) FROM tasks WHERE status='passed');" 2>/dev/null || echo "No brain.db found. Run: shipfast init"
 ```
 
 Then output EXACTLY this format using the numbers from above. Nothing else:
@@ -18,7 +18,6 @@ ShipFast Status
 ===============
 Brain: [nodes] nodes | [edges] edges | [decisions] decisions | [learnings] learnings | [hot_files] hot files
 Tasks: [active] active | [passed] completed
-Budget: [used]/[budget] tokens
 Checkpoints: [checkpoints] available
 ```
 

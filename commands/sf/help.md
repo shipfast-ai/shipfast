@@ -30,7 +30,7 @@ SHIPPING
   /sf-ship [branch]     Create branch, push, output PR link with auto-generated description.
 
 SESSION
-  /sf-status            Show progress, token budget, brain stats, checkpoints.
+  /sf-status            Show brain stats, tasks, checkpoints.
   /sf-resume            Resume work from a previous session. Loads state from brain.db.
   /sf-undo [task-id]    Rollback a completed task via git revert or stash.
 
@@ -41,7 +41,7 @@ KNOWLEDGE
                         Example: /sf-learn tailwind-v4: Use @import not @tailwind
 
 CONFIG
-  /sf-config [key val]  View or set token budget, model tiers, preferences.
+  /sf-config [key val]  View or set model tiers and preferences.
   /sf-help              Show this help message.
 
 WORKFLOW
