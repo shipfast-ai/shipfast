@@ -21,7 +21,6 @@ Query brain.db config table and display:
 ShipFast Configuration
 ======================
 
-Token Budget:     [value]
 Auto Checkpoint:  [true/false]
 Auto Learn:       [true/false]
 
@@ -31,16 +30,11 @@ Model Tiers:
   Builder:   [haiku/sonnet/opus]
   Critic:    [haiku/sonnet/opus]
   Scribe:    [haiku/sonnet/opus]
-
-Context Warnings:
-  Warning at:  [pct]%
-  Critical at: [pct]%
 ```
 
 ## If arguments provided: update config
 
 Parse `key value` from arguments. Valid keys:
-- `token-budget` or `budget` -> config key `token_budget`
 - `model-scout` -> `model_tier_scout`
 - `model-architect` -> `model_tier_architect`
 - `model-builder` -> `model_tier_builder`

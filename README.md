@@ -81,9 +81,8 @@ That's it. ShipFast analyzes your request, classifies intent and complexity, sel
 ```
 ShipFast Status
 ===============
-Token Budget: 23,847/100,000 (24%)  [==        ]
-Active Tasks: 1 running, 2 pending
-Brain: 342 files | 1,847 symbols | 12 decisions | 8 learnings
+Brain: 342 nodes | 1,847 edges | 12 decisions | 8 learnings | 50 hot files
+Tasks: 1 active | 5 completed
 Checkpoints: 3 available
 ```
 
@@ -100,7 +99,6 @@ Uses `git revert` for committed work, stash-based rollback for uncommitted.
 
 ```
 /sf-config                        # Show all config
-/sf-config budget 50000           # Set token budget
 /sf-config model-builder opus     # Use Opus for code writing
 /sf-config model-critic haiku     # Use Haiku for reviews (cheap)
 ```
@@ -237,11 +235,6 @@ Builder:   sonnet   (coding needs quality)
 Critic:    haiku    (diff review is pattern matching)
 Scribe:    haiku    (writing commit msgs is simple)
 ```
-
-Default token budget: 100,000 per session. System degrades gracefully when low:
-- Below 15K: switches non-critical agents to Haiku
-- Below 5K: skips Scribe agent
-- Below 2K: skips Critic, direct execute only
 
 ---
 
