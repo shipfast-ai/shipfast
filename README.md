@@ -25,7 +25,7 @@ Context rot kills AI coding quality. As the context window fills up, output degr
 ShipFast fixes this with a **SQLite knowledge graph** that gives each agent fresh context and gets smarter every session.
 
 - **17 commands, 5 composable agents** — simple to learn, covers the full workflow
-- **SQLite brain** — queryable knowledge graph, zero markdown files
+- **SQLite brain** — queryable knowledge graph, no per-task state files
 - **3K-40K tokens per feature** — 70-90% less than typical AI dev workflows
 - **Fresh context per task** — no accumulated garbage between tasks
 - **Cross-session learning** — records decisions and patterns, gets cheaper over time
