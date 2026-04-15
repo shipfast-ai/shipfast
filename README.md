@@ -20,20 +20,20 @@ Works on Mac, Windows, and Linux.
 
 ## Why ShipFast?
 
-AI dev tools fight context rot by generating **more** context — 15+ markdown files per phase, 31 agents, 50+ commands. That's bureaucracy.
+Context rot kills AI coding quality. As the context window fills up, output degrades.
 
-ShipFast flips the model: **compute context on-demand from a SQLite knowledge graph.** Zero markdown files. Each phase gets fresh agent context. The brain gets smarter every session.
+ShipFast fixes this with a **SQLite knowledge graph** that gives each agent fresh context and gets smarter every session.
 
-| | Alternatives | ShipFast |
-|---|---|---|
-| **Commands** | 50+ | 14 |
-| **Agents** | 31 specialized | 5 composable |
-| **Context storage** | ~15 markdown files per phase | 1 SQLite database |
-| **Tokens per feature** | 95K-150K | 3K-40K |
-| **Complex execution** | Per-plan agents (fresh context) | Per-task agents (fresh context) |
-| **Cross-session memory** | Flat STATE.md (manual) | brain.db decisions + learnings (automatic) |
-| **Learning from mistakes** | None | Self-improving with confidence scoring |
-| **Codebase indexing** | 4 parallel agents, minutes | Batch indexer, <1 second |
+- **17 commands, 5 composable agents** — simple to learn, covers the full workflow
+- **SQLite brain** — queryable knowledge graph, zero markdown files
+- **3K-40K tokens per feature** — 70-90% less than typical AI dev workflows
+- **Fresh context per task** — no accumulated garbage between tasks
+- **Cross-session learning** — records decisions and patterns, gets cheaper over time
+- **Codebase indexing in <1 second** — 973 files indexed in 636ms
+- **Graph-derived architecture** — auto-detects layers from import graph
+- **Cross-repo linking** — search across multiple repos with `shipfast link`
+- **17 MCP tools** — structured brain access, no SQL improvisation
+- **Works with 14 AI coding tools** — auto-detects and installs for all
 
 ---
 
