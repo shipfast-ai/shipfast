@@ -35,25 +35,37 @@ ShipFast flips the model:
 ## Install
 
 ```bash
-# Interactive (asks which runtime and scope)
-npx shipfast
+# Interactive multi-select (pick one or many runtimes)
+npx @shipfast-ai/shipfast
 
-# Install for a specific runtime
-npx shipfast --claude
-npx shipfast --opencode
-npx shipfast --gemini
-npx shipfast --codex
-npx shipfast --cursor
-npx shipfast --windsurf
+# Install for specific runtimes
+npx @shipfast-ai/shipfast --claude
+npx @shipfast-ai/shipfast --opencode
+npx @shipfast-ai/shipfast --gemini
+npx @shipfast-ai/shipfast --kilo
+npx @shipfast-ai/shipfast --codex
+npx @shipfast-ai/shipfast --copilot
+npx @shipfast-ai/shipfast --cursor
+npx @shipfast-ai/shipfast --windsurf
+npx @shipfast-ai/shipfast --antigravity
+npx @shipfast-ai/shipfast --augment
+npx @shipfast-ai/shipfast --trae
+npx @shipfast-ai/shipfast --qwen
+npx @shipfast-ai/shipfast --codebuddy
+npx @shipfast-ai/shipfast --cline
+
+# Multiple runtimes at once
+npx @shipfast-ai/shipfast --claude --cursor --gemini
+
+# All 14 runtimes
+npx @shipfast-ai/shipfast --all
 
 # Scope: --global (all projects) or --local (this project only)
-npx shipfast --claude --global    # ~/.claude/
-npx shipfast --claude --local     # .claude/ in current project
-npx shipfast --gemini --global    # ~/.gemini/
-npx shipfast --cursor --local     # .cursor/ in current project
+npx @shipfast-ai/shipfast --claude --global    # ~/.claude/
+npx @shipfast-ai/shipfast --claude --local     # .claude/ in current project
 
 # Uninstall
-npx shipfast --uninstall
+npx @shipfast-ai/shipfast --uninstall
 ```
 
 ---

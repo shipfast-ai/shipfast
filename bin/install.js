@@ -37,49 +37,77 @@ const hasGlobal = args.includes('--global') || args.includes('-g');
 const hasLocal = args.includes('--local') || args.includes('-l');
 const hasUninstall = args.includes('--uninstall') || args.includes('-u');
 
-// Runtime detection
+// Runtime detection — all 14 runtimes
 const RUNTIMES = {
-  claude: { dir: '.claude', global: '.claude', name: 'Claude Code' },
-  opencode: { dir: '.opencode', global: path.join('.config', 'opencode'), name: 'OpenCode' },
-  gemini: { dir: '.gemini', global: '.gemini', name: 'Gemini CLI' },
-  codex: { dir: '.codex', global: '.codex', name: 'Codex' },
-  cursor: { dir: '.cursor', global: '.cursor', name: 'Cursor' },
-  windsurf: { dir: '.windsurf', global: '.windsurf', name: 'Windsurf' },
+  claude:       { dir: '.claude',     global: '.claude',                         name: 'Claude Code' },
+  opencode:     { dir: '.opencode',   global: path.join('.config', 'opencode'),  name: 'OpenCode' },
+  gemini:       { dir: '.gemini',     global: '.gemini',                         name: 'Gemini CLI' },
+  kilo:         { dir: '.kilo',       global: path.join('.config', 'kilo'),      name: 'Kilo' },
+  codex:        { dir: '.codex',      global: '.codex',                          name: 'Codex' },
+  copilot:      { dir: '.github',     global: '.copilot',                        name: 'Copilot' },
+  cursor:       { dir: '.cursor',     global: '.cursor',                         name: 'Cursor' },
+  windsurf:     { dir: '.windsurf',   global: '.windsurf',                       name: 'Windsurf' },
+  antigravity:  { dir: '.agent',      global: path.join('.gemini', 'antigravity'), name: 'Antigravity' },
+  augment:      { dir: '.augment',    global: '.augment',                        name: 'Augment' },
+  trae:         { dir: '.trae',       global: '.trae',                           name: 'Trae' },
+  qwen:         { dir: '.qwen',       global: '.qwen',                           name: 'Qwen Code' },
+  codebuddy:    { dir: '.codebuddy',  global: '.codebuddy',                      name: 'CodeBuddy' },
+  cline:        { dir: '.cline',      global: '.cline',                          name: 'Cline' },
 };
 
-let selectedRuntime = null;
-for (const [key, _] of Object.entries(RUNTIMES)) {
-  if (args.includes(`--${key}`)) {
-    selectedRuntime = key;
-    break;
+// Parse selected runtimes (supports multiple: --claude --cursor --gemini)
+const hasAll = args.includes('--all');
+let selectedRuntimes = [];
+
+if (hasAll) {
+  selectedRuntimes = Object.keys(RUNTIMES);
+} else {
+  for (const key of Object.keys(RUNTIMES)) {
+    if (args.includes(`--${key}`)) {
+      selectedRuntimes.push(key);
+    }
   }
 }
 
+// Backward compat: single runtime variable for simple cases
+let selectedRuntime = selectedRuntimes.length === 1 ? selectedRuntimes[0] : null;
+
 async function main() {
   console.log(`\n${bold}${cyan}ShipFast${reset} v${pkg.version}`);
-  console.log(`${dim}5 agents. 6 commands. SQLite brain. 3-5x cheaper than GSD.${reset}\n`);
+  console.log(`${dim}5 agents. 12 commands. SQLite brain. 3-5x less tokens than alternatives.${reset}\n`);
 
-  if (!selectedRuntime) {
-    selectedRuntime = await promptRuntime();
-  }
-
-  const runtime = RUNTIMES[selectedRuntime];
-  if (!runtime) {
-    console.error(`${red}Unknown runtime: ${selectedRuntime}${reset}`);
-    process.exit(1);
+  // If no runtimes selected, prompt interactively (multi-select)
+  if (selectedRuntimes.length === 0) {
+    selectedRuntimes = await promptRuntimeMultiSelect();
   }
 
   const isGlobal = hasGlobal || (!hasLocal && await promptScope());
-  const targetDir = isGlobal
-    ? path.join(os.homedir(), runtime.global)
-    : path.join(process.cwd(), runtime.dir);
 
-  if (hasUninstall) {
-    return uninstall(targetDir, runtime.name);
+  // Install for each selected runtime
+  for (const rtKey of selectedRuntimes) {
+    const runtime = RUNTIMES[rtKey];
+    if (!runtime) {
+      console.error(`${red}Unknown runtime: ${rtKey}${reset}`);
+      continue;
+    }
+
+    const targetDir = isGlobal
+      ? path.join(os.homedir(), runtime.global)
+      : path.join(process.cwd(), runtime.dir);
+
+    if (hasUninstall) {
+      uninstall(targetDir, runtime.name);
+      continue;
+    }
+
+    console.log(`${cyan}Installing for ${runtime.name}...${reset}`);
+    console.log(`${dim}  → ${targetDir}${reset}`);
+    install(targetDir, runtime.name, isGlobal);
   }
 
-  console.log(`${dim}Installing to: ${targetDir}${reset}\n`);
-  install(targetDir, runtime.name, isGlobal);
+  if (!hasUninstall) {
+    console.log(`${green}${bold}Installed for ${selectedRuntimes.length} runtime${selectedRuntimes.length > 1 ? 's' : ''}!${reset}\n`);
+  }
 }
 
 function install(targetDir, runtimeName, isGlobal) {
@@ -131,7 +159,6 @@ function install(targetDir, runtimeName, isGlobal) {
   // Update CLAUDE.md (or equivalent) with ShipFast instructions
   updateClaudeMd(targetDir, isGlobal);
 
-  console.log(`${green}${bold}Installed!${reset}\n`);
   console.log(`Commands available:`);
   console.log(`  ${cyan}/sf-do${reset}         The one command — describe what you want`);
   console.log(`  ${cyan}/sf-discuss${reset}    Clarify ambiguity before planning`);
@@ -363,23 +390,38 @@ ${closeMarker}`;
 // Interactive prompts
 // ============================================================
 
-async function promptRuntime() {
+async function promptRuntimeMultiSelect() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log('Select runtime:\n');
+  console.log('Select runtimes (comma-separated numbers, or "all"):\n');
   const entries = Object.entries(RUNTIMES);
   entries.forEach(([key, rt], i) => {
-    console.log(`  ${bold}${i + 1}${reset}. ${rt.name}`);
+    console.log(`  ${bold}${String(i + 1).padStart(2)}${reset}. ${rt.name}`);
   });
+  console.log(`\n  ${bold} a${reset}. All runtimes`);
 
   return new Promise(resolve => {
     rl.question(`\n${cyan}>${reset} `, answer => {
       rl.close();
-      const idx = parseInt(answer) - 1;
-      if (idx >= 0 && idx < entries.length) {
-        resolve(entries[idx][0]);
+      const trimmed = answer.trim().toLowerCase();
+
+      // "all" or "a"
+      if (trimmed === 'all' || trimmed === 'a') {
+        resolve(Object.keys(RUNTIMES));
+        return;
+      }
+
+      // Parse comma-separated numbers: "1,3,5" or "1 3 5" or "1, 3, 5"
+      const nums = trimmed.split(/[\s,]+/).map(n => parseInt(n)).filter(n => !isNaN(n));
+      const selected = nums
+        .map(n => n - 1)
+        .filter(i => i >= 0 && i < entries.length)
+        .map(i => entries[i][0]);
+
+      if (selected.length > 0) {
+        resolve(selected);
       } else {
-        resolve('claude'); // default
+        resolve(['claude']); // default
       }
     });
   });
