@@ -1,7 +1,7 @@
 {
   "name": "@shipfast-ai/shipfast",
   "version": "0.3.0",
-  "description": "Autonomous context-engineered development system. 5 agents, 9 commands, SQLite brain. 3-5x less tokens than alternatives.",
+  "description": "Autonomous context-engineered development system. 5 agents, 12 commands, SQLite brain. 70-90% less tokens than alternatives.",
   "bin": {
     "shipfast": "bin/install.js"
   },
@@ -44,6 +44,7 @@
   "scripts": {
     "build:hooks": "node scripts/build-hooks.js",
     "prepublishOnly": "npm run build:hooks",
+    "postinstall": "node scripts/postinstall.js",
     "test": "vitest run"
   }
 }
