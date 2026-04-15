@@ -1,5 +1,5 @@
 {
-  "name": "shipfast",
+  "name": "@shipfast-ai/shipfast",
   "version": "0.1.0",
   "description": "Autonomous context-engineered development system. 5 agents, 9 commands, SQLite brain. 3-5x less tokens than alternatives.",
   "bin": {
