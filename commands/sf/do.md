@@ -1,0 +1,261 @@
+---
+name: sf:do
+description: "The one command. Analyzes intent, selects workflow, executes autonomously with full pipeline."
+argument-hint: "<describe what you want to do>"
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - Agent
+  - AskUserQuestion
+---
+
+<objective>
+ShipFast's single entry point. Replaces GSD's 50+ commands with ONE natural language interface.
+Runs a 9-step pipeline that adapts based on task complexity.
+Every step is skippable — trivial tasks burn 3K tokens, complex tasks burn 30K.
+</objective>
+
+<pipeline>
+
+## STEP 1: ANALYZE (0 LLM tokens — rule-based)
+
+Classify the user's input using these heuristics:
+
+**Intent** (regex pattern matching):
+- fix/bug/broken/error/crash → `fix`
+- add/create/build/implement/new → `feature`
+- refactor/clean/simplify/extract → `refactor`
+- update/upgrade/migrate/bump → `upgrade`
+- test/spec/coverage → `test`
+- deploy/ship/release/push/pr → `ship`
+- optimize/performance/speed/cache → `perf`
+- security/auth/permission/sanitize → `security`
+- style/css/theme/layout/UI → `style`
+- database/migration/schema/query → `data`
+- remove/delete/drop → `remove`
+- review/check/audit → `review`
+
+**Complexity** (word count + conjunction count + area count):
+- Score 0-2 → `trivial` (direct execute, no planning)
+- Score 3-5 → `medium` (quick plan + execute + review)
+- Score 6+ → `complex` (full pipeline)
+
+**Report to user** (one line):
+```
+[intent] | [complexity] | [workflow] | Est: [token range]
+```
+
+---
+
+## STEP 2: INIT BRAIN (0 tokens)
+
+If `.shipfast/brain.db` does not exist:
+```bash
+node [shipfast-path]/brain/indexer.cjs [cwd]
+```
+
+If brain.db exists, run incremental index on changed files only:
+```bash
+node [shipfast-path]/brain/indexer.cjs [cwd] --changed-only
+```
+
+This takes ~300ms and ensures the knowledge graph is current.
+
+---
+
+## STEP 3: DISCUSS (0-3K tokens) — Complex or ambiguous tasks only
+
+**Skip if**: trivial tasks, or if all ambiguity types already have locked decisions in brain.db.
+
+**Detect ambiguity** (zero tokens — rule-based):
+- **WHERE**: No file paths or component names mentioned
+- **WHAT**: No specific behavior described, very short input
+- **HOW**: Contains "or"/"either"/"maybe", or describes a generic system (auth, cache, billing)
+- **RISK**: Mentions auth/payment/database/delete/production
+- **SCOPE**: More than 30 words with 2+ conjunctions
+
+**For each detected ambiguity**:
+1. Check brain.db for existing locked decisions
+2. If unanswered, ask the user (prefer multiple choice to save typing)
+3. Store answer as locked decision in brain.db (never asked again)
+
+---
+
+## STEP 4: PLAN (0-5K tokens) — Medium/complex only
+
+**Skip if**: trivial tasks (go directly to Step 6)
+
+**Get plan template** based on intent:
+- `fix` → locate, diagnose, fix, verify
+- `feature` → interface, implement, integrate, test
+- `refactor` → identify, extract, update callers, verify
+- etc. (14 templates pre-computed in core/templates.cjs)
+
+**Skip Scout if**:
+- All affected files already indexed in brain.db AND
+- We have high-confidence learnings for this domain AND
+- Intent is `fix` with explicit file paths
+
+**Skip Architect if**:
+- Single-file change
+- Intent is fix/remove/docs/style
+- Task description is under 15 words
+
+**If Scout runs**: Launch Scout agent with brain context. Get compact findings (~3K tokens max).
+
+**If Architect runs**: Launch Architect agent with Scout findings + template. Get task list (~3K tokens max).
+- Architect uses goal-backward methodology: define "done" first, derive tasks from that
+- Maximum 6 tasks. Each with specific file paths and verify steps.
+- Flag scope creep and irreversible operations.
+
+**Store tasks in brain.db** for tracking.
+
+---
+
+## STEP 5: CHECKPOINT (0 tokens)
+
+**Skip if**: trivial tasks
+
+Before execution:
+1. Create git stash checkpoint: `git stash create`
+2. Save pre-execution state to brain.db
+3. This enables /sf-undo rollback if things go wrong
+
+---
+
+## STEP 6: EXECUTE (2-30K tokens)
+
+### Trivial workflow (no agent spawn):
+Execute inline in this context. No separate Builder agent.
+- Read the relevant file
+- Make the change
+- Run build/test if applicable
+- Commit with conventional format
+
+### Medium workflow (1 Builder agent):
+Launch ONE Builder agent with ALL tasks batched:
+- Agent gets: base prompt (~1.5K) + brain context (~500) + all task descriptions
+- Agent executes tasks sequentially within its context
+- One agent call instead of one per task = massive token savings
+- If Critic is not skipped, launch Critic after Builder completes
+
+### Complex workflow (wave-based):
+Group tasks into dependency waves:
+- Wave 1: all independent tasks (can run in parallel)
+- Wave 2: tasks that depend on Wave 1
+- etc.
+For each wave:
+- Launch Builder agent with wave tasks + shared brain context
+- If a task fails after 3 attempts: document as DEFERRED, continue next task
+- Save state to brain.db after each wave (enables resume)
+- Launch Critic after all waves complete
+- Launch Scribe to record decisions and prepare PR description
+
+### Builder behavior:
+- Follows deviation tiers: auto-fix bugs (T1-3), STOP for architecture changes (T4)
+- Analysis paralysis guard: 5+ reads without writing = STOP
+- 3-attempt fix limit: document and move on after 3 failures
+- Stub detection before commit: scan for TODO/FIXME/placeholder
+- Commit hygiene: stage specific files, never `git add .`
+
+### If Critic finds CRITICAL issues:
+Send the issue back to Builder for fix (1 additional agent call, not a full re-run).
+
+---
+
+## STEP 7: VERIFY (0-3K tokens)
+
+**Skip if**: trivial tasks with passing build
+
+Run goal-backward verification:
+1. Extract done-criteria from the original request + plan
+2. Check each criterion:
+   - File exists? → filesystem check
+   - Symbol exists? → grep check
+   - Build passes? → run build command
+   - No stubs? → scan changed files for TODO/FIXME/placeholder
+   - Behavior works? → mark as "manual verification needed"
+3. Score: N/M criteria met
+   - 100% → PASS
+   - 80%+ → PASS_WITH_WARNINGS (list gaps)
+   - Below 80% → FAIL (list what's missing)
+
+Store verification results in brain.db.
+
+### Auto-Fix on Failure
+If verification returns FAIL:
+1. Generate targeted fix tasks from each failure (~200 tokens each, not a fresh agent)
+2. Send fix tasks to Builder for one retry attempt
+3. Re-verify after fixes
+4. If still failing, report as DEFERRED — do not loop further
+
+### TDD Verification (when --tdd flag is set)
+After all tasks complete, verify git log contains the correct commit sequence:
+1. `test(...)` commit (RED phase) — must exist
+2. `feat(...)` commit after it (GREEN phase) — must exist
+3. Optional `refactor(...)` commit
+If sequence is violated, flag as TDD VIOLATION in the report.
+
+### Requirement Verification (when project has REQ-IDs)
+If brain.db has requirements for this phase:
+1. Check each v1 requirement mapped to this phase
+2. Mark as done/pending based on verification results
+3. Report coverage: "Requirements: N/M covered"
+
+---
+
+## STEP 8: LEARN (0 tokens)
+
+Automatically update brain.db:
+- **Decisions**: Extract "chose X", "decided on Y" patterns from the session
+- **Learnings**: Record any error→fix patterns for future sessions
+- **Conventions**: If Builder matched a pattern not yet in brain.db, store it
+- **Boost**: Increase confidence of learnings that helped this session
+- **Prune**: Remove old low-confidence learnings that haven't been used
+
+---
+
+## STEP 9: REPORT
+
+**Trivial tasks** (progressive disclosure — minimal output):
+```
+Done: [one sentence summary]
+```
+
+**Medium tasks**:
+```
+Done: [summary]
+Commits: [N] | Verification: [PASS/WARN/FAIL]
+```
+
+**Complex tasks** (full dashboard):
+```
+Done: [summary]
+Commits: [N] | Tasks: [completed]/[total] | Verification: [PASS/WARN/FAIL]
+Tokens: ~[estimate] | Time: [duration]
+Deferred: [list of issues that need manual attention, if any]
+```
+
+**If session state was saved** (context getting low):
+```
+Progress saved. [N]/[M] tasks completed.
+Run /sf-resume to continue in a new session.
+```
+
+</pipeline>
+
+<context_exhaustion>
+Monitor context usage throughout execution:
+- At 65%: inject "be concise" guidance to agents
+- At 80%: skip Scribe, use cheapest model for all agents
+- At 90%: STOP new work, save state, commit current work
+- At 95%: emergency state dump, notify user to run /sf-resume
+</context_exhaustion>
+
+<context>
+$ARGUMENTS
+</context>

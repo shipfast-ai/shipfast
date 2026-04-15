@@ -1,0 +1,41 @@
+node_modules/
+.DS_Store
+.shipfast/
+
+# Local test installs
+.claude/
+.cursor/
+
+# Build artifacts
+hooks/dist/
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# OS
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Build
+.next/
+dist/
+build/
+target/
+__pycache__/
+*.pyc
+.venv/
+venv/
+vendor/
+*.log
+.cache/
+tmp/

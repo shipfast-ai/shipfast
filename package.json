@@ -1,0 +1,49 @@
+{
+  "name": "shipfast",
+  "version": "0.1.0",
+  "description": "Autonomous context-engineered development system. 5 agents, 9 commands, SQLite brain. 3-5x less tokens than alternatives.",
+  "bin": {
+    "shipfast": "bin/install.js"
+  },
+  "files": [
+    "bin",
+    "brain",
+    "commands",
+    "core",
+    "agents",
+    "hooks",
+    "scripts"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "context-engineering",
+    "autonomous-development",
+    "shipfast",
+    "gemini",
+    "codex",
+    "opencode"
+  ],
+  "author": "Himanshu Lohani <dev.himanshu.lohani@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shipfast-ai/shipfast.git"
+  },
+  "homepage": "https://github.com/shipfast-ai/shipfast",
+  "bugs": {
+    "url": "https://github.com/shipfast-ai/shipfast/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.2"
+  },
+  "scripts": {
+    "build:hooks": "node scripts/build-hooks.js",
+    "prepublishOnly": "npm run build:hooks",
+    "test": "vitest run"
+  }
+}
