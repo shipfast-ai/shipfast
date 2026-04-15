@@ -76,14 +76,55 @@ async function main() {
   console.log(`\n${bold}${cyan}ShipFast${reset} v${pkg.version}`);
   console.log(`${dim}5 agents. 12 commands. SQLite brain. 3-5x less tokens than alternatives.${reset}\n`);
 
-  // If no runtimes selected, prompt interactively (multi-select)
+  // Uninstall: auto-detect what's installed, no prompts needed
+  if (hasUninstall) {
+    let uninstalled = 0;
+
+    // If specific runtimes given, uninstall those
+    if (selectedRuntimes.length > 0) {
+      for (const rtKey of selectedRuntimes) {
+        const runtime = RUNTIMES[rtKey];
+        if (!runtime) continue;
+        for (const dir of [
+          path.join(process.cwd(), runtime.dir),
+          path.join(os.homedir(), runtime.global)
+        ]) {
+          const sfDir = path.join(dir, 'shipfast');
+          if (fs.existsSync(sfDir)) {
+            uninstall(dir, runtime.name);
+            uninstalled++;
+          }
+        }
+      }
+    } else {
+      // No runtime specified: scan all possible locations and remove whatever exists
+      for (const [rtKey, runtime] of Object.entries(RUNTIMES)) {
+        for (const dir of [
+          path.join(process.cwd(), runtime.dir),
+          path.join(os.homedir(), runtime.global)
+        ]) {
+          const sfDir = path.join(dir, 'shipfast');
+          if (fs.existsSync(sfDir)) {
+            uninstall(dir, runtime.name);
+            uninstalled++;
+          }
+        }
+      }
+    }
+
+    if (uninstalled === 0) {
+      console.log(`${dim}No ShipFast installations found.${reset}`);
+    }
+    return;
+  }
+
+  // Install: prompt if no runtimes selected
   if (selectedRuntimes.length === 0) {
     selectedRuntimes = await promptRuntimeMultiSelect();
   }
 
   const isGlobal = hasGlobal || (!hasLocal && await promptScope());
 
-  // Install for each selected runtime
   for (const rtKey of selectedRuntimes) {
     const runtime = RUNTIMES[rtKey];
     if (!runtime) {
@@ -95,19 +136,12 @@ async function main() {
       ? path.join(os.homedir(), runtime.global)
       : path.join(process.cwd(), runtime.dir);
 
-    if (hasUninstall) {
-      uninstall(targetDir, runtime.name);
-      continue;
-    }
-
     console.log(`${cyan}Installing for ${runtime.name}...${reset}`);
     console.log(`${dim}  → ${targetDir}${reset}`);
     install(targetDir, runtime.name, isGlobal);
   }
 
-  if (!hasUninstall) {
-    console.log(`${green}${bold}Installed for ${selectedRuntimes.length} runtime${selectedRuntimes.length > 1 ? 's' : ''}!${reset}\n`);
-  }
+  console.log(`${green}${bold}Installed for ${selectedRuntimes.length} runtime${selectedRuntimes.length > 1 ? 's' : ''}!${reset}\n`);
 }
 
 function install(targetDir, runtimeName, isGlobal) {

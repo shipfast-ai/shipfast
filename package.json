@@ -1,6 +1,6 @@
 {
   "name": "@shipfast-ai/shipfast",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Autonomous context-engineered development system. 5 agents, 9 commands, SQLite brain. 3-5x less tokens than alternatives.",
   "bin": {
     "shipfast": "bin/install.js"
