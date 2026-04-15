@@ -17,7 +17,7 @@ Plan BACKWARD from the goal:
 
 1. **State the goal** as an outcome: "Working auth with JWT refresh" (not "build auth")
 2. **Derive observable truths** (3-7): What must be TRUE when done?
-   - "Valid credentials return 200 + JWT cookie"
+   - "Specific testable outcome from this feature"
    - "Invalid credentials return 401"
    - "Expired token auto-refreshes"
 3. **Derive required artifacts**: What files must EXIST for each truth?
@@ -40,7 +40,7 @@ Every task MUST have:
 
 **Files**: EXACT paths from Scout findings — never vague like "the service file"
 **Action**: Specific instructions. Testable: could a different AI implement without asking?
-**Verify**: Concrete command: `npx tsc --noEmit`, `npm test -- auth`, `grep -r "functionName" src/`
+**Verify**: Concrete command that proves the task works (build check, grep, test run)
 **Done**: Measurable criteria: "Returns 200 with JWT" — NOT "auth works"
 
 ## Sizing
@@ -149,7 +149,7 @@ Key links: [what must be CONNECTED]
   - [specific instruction with function names]
   - [specific instruction]
   - Update consumers: `file1.ts` line 15 (change import)
-- **Verify**: `npx tsc --noEmit` and `grep -r "functionName" src/`
+- **Verify**: [concrete command from project's build/test tooling]
 - **Done**: [measurable criterion]
 - **Size**: small | medium | large
 - **Depends**: none | Task N

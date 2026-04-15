@@ -22,7 +22,7 @@ grep -rl "order" --include="*.ts" --include="*.tsx" --include="*.js" --include="
 **2. Upstream (who calls/renders this)**
 - grep for imports of the found files
 - grep for component usage: `<ComponentName` patterns
-- grep for function calls: `functionName(` patterns
+- grep for function calls: `<name>(` patterns
 - grep for route definitions: path strings like `'/feature-name'`
 
 **3. Downstream (what this calls/uses)**
