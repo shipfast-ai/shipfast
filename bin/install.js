@@ -57,6 +57,9 @@ function main() {
     case 'update':   return cmdUpdate();
     case 'uninstall': return cmdUninstall();
     case 'status':   return cmdStatus();
+    case 'brain':    return cmdBrain();
+    case 'learn':    return cmdLearn();
+    case 'decide':   return cmdDecide();
     case 'help':
     case 'h':        return cmdHelp();
     case 'version':
@@ -133,18 +136,25 @@ function installFor(key, runtime) {
   for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js'])
     copy('hooks/' + f, path.join(hooksDir, f));
 
+  // Copy MCP server
+  const mcpDir = path.join(sfDir, 'mcp');
+  fs.mkdirSync(mcpDir, { recursive: true });
+  copy('mcp/server.cjs', path.join(mcpDir, 'server.cjs'));
+
   // Runtime-specific config
   const claudeCompat = ['Claude Code', 'OpenCode', 'Kilo'];
   const geminiCompat = ['Gemini CLI', 'Antigravity'];
 
   if (claudeCompat.includes(runtime.name)) {
     writeSettings(dir, hooksDir);
+    writeMcpConfig(dir);
     writeInstruction(path.join(dir, 'CLAUDE.md'));
   } else if (geminiCompat.includes(runtime.name)) {
     writeInstruction(path.join(dir, 'AGENTS.md'));
   } else if (runtime.name === 'Copilot') {
     writeInstruction(path.join(dir, 'copilot-instructions.md'));
   } else if (runtime.name === 'Cursor') {
+    writeMcpConfig(dir);
     writeInstruction(path.join(dir, 'rules'));
   } else {
     writeInstruction(path.join(dir, 'AGENTS.md'));
@@ -369,6 +379,23 @@ function writeSettings(dir, hooksDir) {
     if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));
   }
   fs.writeFileSync(sp, JSON.stringify(s, null, 2));
+}
+
+function writeMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const settingsPath = path.join(dir, 'settings.json');
+  let s = {};
+  if (fs.existsSync(settingsPath)) { try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {} }
+
+  if (!s.mcpServers) s.mcpServers = {};
+
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+
+  fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2));
 }
 
 function writeInstruction(filePath) {
