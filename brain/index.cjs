@@ -32,7 +32,8 @@ function initBrain(cwd) {
   const dbPath = getBrainPath(cwd);
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
-  execFileSync('sqlite3', [dbPath], { input: schema, stdio: ['pipe', 'pipe', 'pipe'] });
+  // Enable WAL mode for corruption protection (safe against interrupted writes)
+  execFileSync('sqlite3', [dbPath], { input: 'PRAGMA journal_mode=WAL;\n' + schema, stdio: ['pipe', 'pipe', 'pipe'] });
   return dbPath;
 }
 

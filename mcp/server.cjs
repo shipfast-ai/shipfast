@@ -466,7 +466,7 @@ function handleMessage(msg) {
       result: {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'shipfast-brain', version: '0.5.0' }
+        serverInfo: { name: 'shipfast-brain', version: '1.0.0' }
       }
     });
   }
@@ -491,9 +491,14 @@ function handleMessage(msg) {
 
     try {
       const result = tool.handler(params.arguments || {});
+      let text = JSON.stringify(result, null, 2);
+      // Truncate large responses to prevent context flooding (50KB max)
+      if (text.length > 50000) {
+        text = text.slice(0, 50000) + '\n... [truncated — ' + text.length + ' chars total. Use more specific query.]';
+      }
       return send({
         jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+        result: { content: [{ type: 'text', text }] }
       });
     } catch (err) {
       return send({

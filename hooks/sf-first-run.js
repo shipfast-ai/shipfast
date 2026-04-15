@@ -16,7 +16,7 @@ const path = require('path');
 const os = require('os');
 
 let input = '';
-const stdinTimeout = setTimeout(() => process.exit(0), 5000);
+const stdinTimeout = setTimeout(() => process.exit(0), 10000); // consistent 10s timeout across all hooks
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {

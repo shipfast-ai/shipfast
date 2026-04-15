@@ -15,6 +15,25 @@ const path = require('path');
 const os = require('os');
 const { execFileSync: safeRun } = require('child_process');
 
+// WSL + Windows detection (from GSD's 49-release edge case fixes)
+if (process.platform === 'win32') {
+  let isWSL = false;
+  try {
+    if (process.env.WSL_DISTRO_NAME) isWSL = true;
+    else if (fs.existsSync('/proc/version')) {
+      const pv = fs.readFileSync('/proc/version', 'utf8').toLowerCase();
+      if (pv.includes('microsoft') || pv.includes('wsl')) isWSL = true;
+    }
+  } catch {}
+  if (isWSL) {
+    console.error('\nDetected WSL with Windows-native Node.js.');
+    console.error('Install a Linux-native Node.js inside WSL:');
+    console.error('  curl -fsSL https://fnm.vercel.app/install | bash');
+    console.error('  fnm install --lts\n');
+    process.exit(1);
+  }
+}
+
 const cyan = '\x1b[36m';
 const green = '\x1b[32m';
 const yellow = '\x1b[33m';
