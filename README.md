@@ -65,7 +65,9 @@ Updates the package and re-detects runtimes (catches newly installed AI tools).
 ```bash
 shipfast init           # Index current repo into .shipfast/brain.db
 shipfast init --fresh   # Full reindex (clears existing brain)
-shipfast status         # Show installed runtimes + brain stats
+shipfast link <path>    # Link another repo for cross-repo search
+shipfast unlink [path]  # Unlink a repo (or all)
+shipfast status         # Show installed runtimes + brain + links
 shipfast update         # Update + re-detect runtimes
 shipfast uninstall      # Remove from all AI tools
 shipfast help           # Show all commands
@@ -213,7 +215,7 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 **Incremental indexing**: only re-indexes changed files (~300ms). Deleted files auto-cleaned.
 
-**MCP Server**: brain.db is exposed as 15 structured MCP tools. LLMs call these instead of improvising SQL.
+**MCP Server**: brain.db is exposed as 17 structured MCP tools. LLMs call these instead of improvising SQL.
 
 ---
 
