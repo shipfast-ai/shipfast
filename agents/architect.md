@@ -38,7 +38,7 @@ Must-haves:
 
 Every task MUST have:
 
-**Files**: EXACT paths. `src/services/api/featureName.ts` — NOT "the service file"
+**Files**: EXACT paths from Scout findings — never vague like "the service file"
 **Action**: Specific instructions. Testable: could a different AI implement without asking?
 **Verify**: Concrete command: `npx tsc --noEmit`, `npm test -- auth`, `grep -r "functionName" src/`
 **Done**: Measurable criteria: "Returns 200 with JWT" — NOT "auth works"
