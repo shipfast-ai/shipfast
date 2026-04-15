@@ -495,8 +495,19 @@ function indexCodebase(cwd, opts = {}) {
     }
   } catch { /* git-intel optional */ }
 
+  // Compute architecture layers from import graph
+  let layers = 0;
+  try {
+    const archPath = path.join(__dirname, '..', 'core', 'architecture.cjs');
+    if (fs.existsSync(archPath)) {
+      const arch = require(archPath);
+      const result = arch.computeArchitecture(cwd);
+      layers = result.computed || 0;
+    }
+  } catch { /* architecture optional */ }
+
   const elapsed = Date.now() - startTime;
-  return { files: files.length, indexed, skipped, cleaned, nodes: totalNodes, edges: totalEdges, statements: batch.count, elapsed_ms: elapsed };
+  return { files: files.length, indexed, skipped, cleaned, layers, nodes: totalNodes, edges: totalEdges, statements: batch.count, elapsed_ms: elapsed };
 }
 
 // CLI mode

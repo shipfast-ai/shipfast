@@ -30,6 +30,22 @@ Read the user's project description. If brain.db exists, load:
 
 If the project description is ambiguous, run the ambiguity detection from /sf-discuss first.
 
+## Step 1.5: Parallel Domain Research (for new/complex projects)
+
+If the project involves unfamiliar technology or external integrations, launch **up to 4 Scout agents in parallel** to research:
+
+1. **Stack Scout** — What's the standard stack for this domain? Libraries, versions, frameworks.
+2. **Architecture Scout** — How are similar systems typically structured? Patterns, tiers, boundaries.
+3. **Pitfalls Scout** — What do projects like this commonly get wrong? Gotchas, anti-patterns.
+4. **Integration Scout** — What external services/APIs are needed? Auth, webhooks, SDKs.
+
+Each Scout runs in its own context. Findings are stored in brain.db:
+```bash
+sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('project:research:[topic]', 'project', 'research:[topic]', '[findings JSON]', 1, strftime('%s', 'now'));"
+```
+
+Skip this step for simple projects or projects where brain.db already has relevant decisions.
+
 ### Multi-Repo Detection
 Check if the workspace contains multiple git repositories (submodules, monorepo packages):
 ```bash

@@ -17,39 +17,47 @@ ShipFast — Autonomous Context-Engineered Development
 =====================================================
 
 CORE
-  /sf-do <task>         The one command. Describe what you want in natural language.
-                        Auto-detects complexity: trivial (3K tokens) → medium (15K) → complex (40K)
+  /sf-do <task>            Execute a task. Auto-detects complexity.
+                           Trivial: inline (~3K) | Medium: 1 agent (~15K) | Complex: per-task (~40K)
 
 PLANNING
-  /sf-discuss <task>    Detect ambiguity and ask targeted questions before planning.
-                        Stores answers as locked decisions in brain.db.
-  /sf-project <desc>    Decompose a large project into phases with REQ-ID tracing.
-                        Each phase runs through /sf-do independently.
+  /sf-discuss <task>       Detect ambiguity, ask questions, lock decisions.
+  /sf-plan <task>          Research (Scout) + Plan (Architect). Stores tasks in brain.db.
+  /sf-check-plan           Verify plan before execution: scope, consumers, STRIDE threats.
+  /sf-project <desc>       Decompose large project into phases with REQ-ID tracing.
+
+EXECUTION
+  /sf-do                   Execute tasks from brain.db. Per-task fresh context for complex.
+  /sf-verify               Verify: 3-level artifacts, data flow, stubs, build, consumers.
 
 SHIPPING
-  /sf-ship [branch]     Create branch, push, output PR link with auto-generated description.
+  /sf-ship [branch]        Create branch, push, output PR link.
+  /sf-milestone            Complete or start a milestone.
 
 SESSION
-  /sf-status            Show brain stats, tasks, checkpoints.
-  /sf-resume            Resume work from a previous session. Loads state from brain.db.
-  /sf-undo [task-id]    Rollback a completed task via git revert or stash.
+  /sf-status               Brain stats, tasks, checkpoints, version.
+  /sf-resume               Resume from previous session.
+  /sf-undo [task-id]       Rollback a completed task.
 
 KNOWLEDGE
-  /sf-brain <query>     Query the codebase knowledge graph directly.
-                        Examples: "files like auth", "decisions", "hot files", "stats"
-  /sf-learn <pattern>   Teach a reusable pattern. Persists across sessions.
-                        Example: /sf-learn tailwind-v4: Use @import not @tailwind
+  /sf-brain <query>        Query knowledge graph: files, decisions, learnings, hot files.
+  /sf-learn <pattern>      Teach a reusable pattern.
+  /sf-map                  Generate codebase report from brain.db.
+
+PARALLEL WORK
+  /sf-workstream list      Show all workstreams.
+  /sf-workstream create    Create namespaced workstream with branch.
+  /sf-workstream switch    Switch active workstream.
+  /sf-workstream complete  Complete and merge workstream.
 
 CONFIG
-  /sf-config [key val]  View or set model tiers and preferences.
-  /sf-help              Show this help message.
+  /sf-config               View or set model tiers and preferences.
+  /sf-help                 Show this help.
 
-WORKFLOW
-  /sf-do runs a 9-step pipeline that adapts to task complexity:
-
-  TRIVIAL (fix typo)     → Builder only, no planning, ~3K tokens
-  MEDIUM (add feature)   → Scout → Architect → Builder → Critic, ~15K tokens
-  COMPLEX (new system)   → Full pipeline + discussion + verification, ~40K tokens
+WORKFLOWS
+  Simple:     /sf-do fix the typo in header
+  Standard:   /sf-plan add dark mode → /sf-check-plan → /sf-do → /sf-verify
+  Complex:    /sf-project → /sf-discuss → /sf-plan → /sf-check-plan → /sf-do → /sf-verify → /sf-ship
 
   Steps: Analyze → Init Brain → Discuss → Plan → Checkpoint → Execute → Verify → Learn → Report
   Each step is skippable — the system only runs what's needed.

@@ -2,11 +2,17 @@
 
 # ShipFast
 
-**Autonomous context-engineered development system.**
+**Autonomous context-engineered development system with SQLite brain.**
 
-**5 agents. 12 commands. SQLite brain. 70-90% less tokens than alternatives.**
+**5 agents. 14 commands. Per-task fresh context. 70-90% fewer tokens.**
 
-Supports 14 runtimes: Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, CodeBuddy, Cline
+Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, CodeBuddy, Cline
+
+```
+npm i -g @shipfast-ai/shipfast
+```
+
+Works on Mac, Windows, and Linux.
 
 </div>
 
@@ -14,219 +20,298 @@ Supports 14 runtimes: Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, C
 
 ## Why ShipFast?
 
-Traditional AI dev tools fight context rot by generating **more** context — 15+ markdown files per phase, 31 specialized agents, 50+ commands to memorize. That's bureaucracy, not engineering.
+AI dev tools fight context rot by generating **more** context — 15+ markdown files per phase, 31 agents, 50+ commands. That's bureaucracy.
 
-ShipFast flips the model:
-
-> **Compute context on-demand. Never store what you can derive. Never ask what you can infer.**
+ShipFast flips the model: **compute context on-demand from a SQLite knowledge graph.** Zero markdown files. Each phase gets fresh agent context. The brain gets smarter every session.
 
 | | Alternatives | ShipFast |
 |---|---|---|
-| **Commands** | 50+ | 12 |
+| **Commands** | 50+ | 14 |
 | **Agents** | 31 specialized | 5 composable |
 | **Context storage** | ~15 markdown files per phase | 1 SQLite database |
 | **Tokens per feature** | 95K-150K | 3K-40K |
-| **Trivial task overhead** | Full ceremony | Near-zero |
-| **Cross-session memory** | Flat STATE.md | Weighted learnings with decay |
-| **Staleness detection** | None | Content hash auto-detect |
+| **Complex execution** | Per-plan agents (fresh context) | Per-task agents (fresh context) |
+| **Cross-session memory** | Flat STATE.md (manual) | brain.db decisions + learnings (automatic) |
 | **Learning from mistakes** | None | Self-improving with confidence scoring |
+| **Codebase indexing** | 4 parallel agents, minutes | Batch indexer, <1 second |
 
 ---
 
-## Install
+## Getting Started
 
 ```bash
 npm i -g @shipfast-ai/shipfast
 ```
 
-That's it. Auto-detects your AI tools (Claude Code, Cursor, Gemini, etc.) and installs for all of them.
-
-Then index your repo:
+Auto-detects your AI tools and installs for all of them. Then index your repo:
 
 ```bash
 cd your-project
 shipfast init
 ```
 
-### Commands
+Verify: run `/sf-help` in your AI tool.
+
+### Staying Updated
 
 ```bash
-shipfast init         # index current repo into .shipfast/brain.db
-shipfast update       # update to latest + re-detect new AI tools
-shipfast uninstall    # remove from all AI tools
-shipfast help         # show commands
+shipfast update
 ```
+
+Updates the package and re-detects runtimes (catches newly installed AI tools).
+
+### Terminal Commands
+
+```bash
+shipfast init           # Index current repo into .shipfast/brain.db
+shipfast init --fresh   # Full reindex (clears existing brain)
+shipfast status         # Show installed runtimes + brain stats
+shipfast update         # Update + re-detect runtimes
+shipfast uninstall      # Remove from all AI tools
+shipfast help           # Show all commands
+```
+
+---
+
+## How It Works
+
+Already have code? `shipfast init` indexes your codebase in under 1 second — functions, types, imports, git history. No parallel agents, no markdown files. Just a SQLite database.
+
+### 1. Plan Phase
+
+```
+/sf-plan Add Stripe billing with webhooks
+```
+
+Spawns two agents in fresh contexts:
+
+**Scout** — Researches the codebase. Finds relevant files, functions, consumers. Tags findings with confidence levels: [VERIFIED], [CITED], [ASSUMED].
+
+**Architect** — Creates a precise task list using goal-backward methodology. Starts from "what does done look like" and works backward to tasks. Each task has exact file paths, consumer lists, verify commands, and measurable done criteria.
+
+Tasks are stored in brain.db. No PLAN.md files.
+
+### 2. Execute
+
+```
+/sf-do
+```
+
+Reads tasks from brain.db and executes them.
+
+**Trivial tasks** (fix a typo, add an import) — executes inline. No agents, no planning. ~3K tokens.
+
+**Medium tasks** (add a component, refactor a module) — one Builder agent with all tasks batched. ~15K tokens.
+
+**Complex tasks** (new feature across multiple files) — **per-task Builder agents with fresh context each.** No accumulated garbage between tasks. Each Builder:
+
+1. Reads files + greps for consumers of anything it'll change
+2. Implements following existing patterns
+3. Runs build/typecheck — fixes errors before committing
+4. Commits with conventional format
+5. Updates task status in brain.db
+
+After all tasks: Critic reviews the diff. Scribe records decisions and learnings to brain.db.
+
+### 3. Verify
+
+```
+/sf-verify
+```
+
+Separate verification in fresh context:
+
+- **3-level artifact validation**: exists → substantive (not stubs) → wired (imported and used)
+- **Data flow tracing**: components receive real data, not hardcoded empty arrays
+- **Consumer integrity**: removed exports have zero remaining consumers
+- **Stub detection**: TODO, FIXME, placeholder, empty handlers, console.log, debugger
+- **Build verification**: runs build command, reports pass/fail
+
+Scores: PASS / PASS_WITH_WARNINGS / FAIL with specific failure details.
+
+### 4. Discuss (when needed)
+
+```
+/sf-discuss Add authentication
+```
+
+Detects ambiguity before planning (zero LLM tokens — rule-based):
+
+- **WHERE**: No file paths mentioned
+- **WHAT**: No behavior described
+- **HOW**: Multiple approaches possible
+- **RISK**: Touches auth/payment/data
+- **SCOPE**: Broad request with conjunctions
+
+Asks 2-5 targeted questions. Stores answers as locked decisions in brain.db. Never asks the same question twice (even across sessions).
+
+### 5. Ship
+
+```
+/sf-ship
+```
+
+Creates branch, generates PR description from brain.db (decisions, tasks, changes), pushes, outputs PR link.
+
+### 6. Repeat → Complete → Next Milestone
+
+```
+/sf-discuss Phase 2
+/sf-plan Phase 2: Payment webhooks
+/sf-do
+/sf-verify
+/sf-ship
+...
+/sf-milestone complete
+/sf-milestone new v2.0
+```
+
+Or for simple tasks, skip the ceremony:
+
+```
+/sf-do fix the login bug
+```
+
+ShipFast auto-detects complexity and runs the right workflow.
+
+---
+
+## Why Fresh Context Matters
+
+Context rot is the #1 quality killer. As the context window fills with file reads, error messages, and previous task artifacts, Claude's output quality degrades.
+
+ShipFast solves this:
+
+| Phase | Agent | Context |
+|---|---|---|
+| Research | Scout (Haiku) | Fresh — only brain.db context |
+| Planning | Architect (Sonnet) | Fresh — Scout findings + brain.db |
+| Execution | Builder (Sonnet) × N | Fresh per task — task plan + brain.db |
+| Review | Critic (Haiku) | Fresh — git diff only |
+| Documentation | Scribe (Haiku) | Fresh — session summary |
+
+Each agent starts clean. No accumulated garbage. Quality stays consistent from first task to last.
+
+---
+
+## Brain (SQLite Knowledge Graph)
+
+All state lives in `.shipfast/brain.db`. Zero markdown files.
+
+| Table | What it stores |
+|---|---|
+| `nodes` | Functions, types, classes, components (auto-extracted) |
+| `edges` | Import/call/dependency relationships + git co-change patterns |
+| `decisions` | Compact Q&A pairs (~40 tokens each, not ~500 like markdown) |
+| `learnings` | Error→fix patterns with confidence scoring |
+| `tasks` | Execution history with commit SHAs |
+| `requirements` | REQ-IDs mapped to phases for tracing |
+| `checkpoints` | Git stash refs for rollback |
+| `hot_files` | Most frequently changed files from git history |
+
+**Incremental indexing**: only re-indexes changed files (~300ms). Deleted files auto-cleaned.
+
+**MCP Server**: brain.db is exposed as structured MCP tools — `brain_stats`, `brain_search`, `brain_decisions`, `brain_learnings`, etc. LLMs call these instead of improvising SQL.
+
+---
+
+## Agents
+
+5 composable agents replace 31 specialized ones. Same behavioral rules, 90% fewer tokens.
+
+| Agent | Role | Model | Key Rules |
+|---|---|---|---|
+| **Scout** | Research | Haiku | Confidence tagging, 12-call limit, architecture mapping, consumer lists |
+| **Architect** | Planning | Sonnet | Goal-backward, exact file paths, consumer checks, scope prohibition, must-haves |
+| **Builder** | Execution | Sonnet | Impact analysis before every change, per-task build verify, 3-attempt limit, deviation tracking, threat scan |
+| **Critic** | Review | Haiku | 3 depths (quick/standard/deep), import graph tracing, consumer integrity check |
+| **Scribe** | Documentation | Haiku | Records decisions + learnings to brain.db via sqlite3, PR descriptions |
+
+### Builder's Rule Zero
+
+Before deleting, removing, or modifying ANY function, type, or export:
+
+```bash
+grep -r "functionName" --include="*.ts" --include="*.tsx" .
+```
+
+If other files use it → update them or keep it. **NEVER remove without checking consumers.** This single rule prevents 80% of refactoring bugs.
 
 ---
 
 ## Commands
 
-### `/sf-do` — The One Command
+### Core Workflow
 
-```
-/sf-do Add Stripe billing with usage-based pricing
-/sf-do Fix the login redirect bug
-/sf-do Refactor the auth module to use jose
-```
+| Command | What it does |
+|---|---|
+| `/sf-do <task>` | Execute a task. Auto-detects complexity: trivial → medium → complex |
+| `/sf-plan <task>` | Research (Scout) + Plan (Architect). Stores tasks in brain.db |
+| `/sf-verify` | Verify completed work: artifacts, data flow, stubs, build, consumers |
+| `/sf-discuss <task>` | Detect ambiguity, ask targeted questions, lock decisions |
 
-That's it. ShipFast analyzes your request, classifies intent and complexity, selects the right workflow depth, and executes autonomously.
+### Projects
 
-**Workflow auto-selection:**
-- **Trivial** (typo fix, add a spinner) — Direct execute. No planning. ~2K-5K tokens.
-- **Medium** (add dark mode, paginate a table) — Quick plan, execute, review. ~10K-20K tokens.
-- **Complex** (add Stripe billing, rewrite auth) — Full pipeline. ~40K-80K tokens.
+| Command | What it does |
+|---|---|
+| `/sf-project <desc>` | Decompose large project into phases with REQ-ID tracing |
+| `/sf-milestone [complete\|new]` | Complete current milestone or start next version |
 
-### `/sf-status` — Progress Dashboard
+### Shipping
 
-```
-ShipFast Status
-===============
-Brain: 342 nodes | 1,847 edges | 12 decisions | 8 learnings | 50 hot files
-Tasks: 1 active | 5 completed
-Checkpoints: 3 available
-```
+| Command | What it does |
+|---|---|
+| `/sf-ship` | Create branch, push, output PR link with auto-generated description |
 
-### `/sf-undo` — Safe Rollback
+### Session
 
-```
-/sf-undo              # Shows recent tasks, pick one
-/sf-undo task:auth:1  # Undo specific task
-```
+| Command | What it does |
+|---|---|
+| `/sf-status` | Show brain stats, tasks, checkpoints, version |
+| `/sf-resume` | Resume from previous session (loads state from brain.db) |
+| `/sf-undo [task-id]` | Rollback a completed task via git revert |
 
-Uses `git revert` for committed work, stash-based rollback for uncommitted.
+### Knowledge
 
-### `/sf-config` — Configuration
+| Command | What it does |
+|---|---|
+| `/sf-brain <query>` | Query knowledge graph: files, decisions, learnings, hot files |
+| `/sf-learn <pattern>` | Teach a reusable pattern (persists across sessions) |
 
-```
-/sf-config                        # Show all config
-/sf-config model-builder opus     # Use Opus for code writing
-/sf-config model-critic haiku     # Use Haiku for reviews (cheap)
-```
+### Config
 
-### `/sf-brain` — Query Knowledge Graph
-
-```
-/sf-brain files like auth         # Find auth-related files
-/sf-brain what calls validateToken # Dependency tracing
-/sf-brain decisions               # All decisions made
-/sf-brain hot files               # Most frequently changed files
-/sf-brain stats                   # Brain statistics
-```
-
-### `/sf-learn` — Teach Patterns
-
-```
-/sf-learn react-19-refs: Use callback refs, not string refs
-/sf-learn tailwind-v4: Use @import not @tailwind directives
-/sf-learn prisma-json: Always cast JSON fields with Prisma.JsonValue
-```
-
-Learnings start at 0.8 confidence, boost on reuse, decay with time.
+| Command | What it does |
+|---|---|
+| `/sf-config` | View or set model tiers and preferences |
+| `/sf-help` | Show all commands with workflows |
 
 ---
 
-## Architecture
+## Workflows
 
 ```
-+---------------------------------------------------+
-|  Layer 1: BRAIN (SQLite Knowledge Graph)           |
-|  .shipfast/brain.db — auto-indexed, queryable      |
-+---------------------------------------------------+
-|  Layer 2: AUTOPILOT (Intent Router)                |
-|  Rule-based classification — zero LLM cost         |
-+---------------------------------------------------+
-|  Layer 3: SWARM (5 Composable Agents)              |
-|  Scout, Architect, Builder, Critic, Scribe         |
-+---------------------------------------------------+
+Simple:     /sf-do fix the typo in header
+Standard:   /sf-plan add dark mode → /sf-do → /sf-verify
+Complex:    /sf-project Build billing → /sf-discuss → /sf-plan → /sf-do → /sf-verify → /sf-ship
 ```
-
-### Brain (SQLite)
-
-All project state lives in `.shipfast/brain.db`. Zero markdown files.
-
-| Table | Purpose | Replaces |
-|---|---|---|
-| `nodes` | Functions, types, classes, components | codebase-mapper agents |
-| `edges` | Import/call/dependency graph | manual dependency tracking |
-| `decisions` | Compact Q&A pairs (~40 tokens each) | STATE.md (~500 tokens each) |
-| `learnings` | Self-improving patterns with confidence | nothing (GSD doesn't learn) |
-| `tasks` | Execution history with commit SHAs | PLAN.md + VERIFICATION.md |
-| `checkpoints` | Git stash refs for rollback | nothing (GSD can't undo) |
-| `token_usage` | Per-agent spending tracker | nothing (GSD doesn't track) |
-| `hot_files` | Git-derived change frequency | nothing |
-
-Auto-indexed on first run. Incremental re-indexing on file changes (~100ms).
-
-### Autopilot
-
-Zero-cost routing (no LLM tokens):
-
-1. **Intent** — Regex matching: fix, feature, refactor, test, ship, perf, security, etc.
-2. **Complexity** — Heuristic: word count + conjunction count + area count
-3. **Workflow** — Auto-select: trivial (direct) / medium (quick) / complex (full)
-
-### Agents
-
-5 composable agents replace 31 specialized ones:
-
-| Agent | Role | Default Model | Typical Cost |
-|---|---|---|---|
-| **Scout** | Read code, find files, fetch docs | Haiku | ~3K tokens |
-| **Architect** | Plan tasks, order dependencies | Sonnet | ~5K tokens |
-| **Builder** | Write code, run tests, commit | Sonnet | ~8K tokens |
-| **Critic** | Review diffs for bugs/security | Haiku | ~2K tokens |
-| **Scribe** | Record decisions, write PR desc | Haiku | ~1K tokens |
-
-Each gets a tiny base prompt (~200 tokens) + targeted context from brain.db.
-
----
-
-## Token Efficiency
-
-### Blast Radius Context (not full files)
-
-```sql
--- Instead of loading 20 full files (~15K tokens),
--- load only the dependency subgraph (~500 tokens)
-WITH RECURSIVE affected AS (
-  SELECT id FROM nodes WHERE file_path IN (...)
-  UNION
-  SELECT e.target FROM edges e
-  JOIN affected a ON e.source = a.id
-  WHERE depth < 3
-)
-SELECT signature FROM nodes JOIN affected ...
-```
-
-### Compressed Decisions
-
-```
-GSD STATE.md (~500 tokens per decision):
-  "After discussing with the user, we decided to use jose..."
-
-brain.db (~40 tokens per decision):
-  Q: "JWT library?" -> "jose — Edge+Node, good TS types"
-```
-
-### Model Tiering
-
-60% of LLM calls use Haiku (cheapest tier). Only Builder and Architect use Sonnet. Configurable per-agent.
 
 ---
 
 ## Self-Improving Memory
 
-1. Task fails -> pattern + error recorded in `learnings` table
-2. Next similar task -> learning injected into Builder context
-3. Learning helps -> confidence increases (max 1.0)
-4. Learning unused for 30 days -> auto-pruned
-5. Users teach directly with `/sf-learn` (starts at 0.8 confidence)
+ShipFast gets cheaper and smarter every session:
+
+1. **First time** doing X → full pipeline (scout + architect + builder + critic)
+2. **Second time** → skip scout + architect (brain has the patterns)
+3. **Third time** → skip critic too (high confidence learnings)
+
+Learnings are confidence-weighted (0.0-1.0). Boost on successful reuse. Auto-prune after 30 days of non-use. Users teach directly with `/sf-learn`.
 
 ---
 
 ## Configuration
 
-Default model tiers (configurable with `/sf-config`):
+Model tiers per agent (configurable with `/sf-config`):
 
 ```
 Scout:     haiku    (reading is cheap)
@@ -238,6 +323,29 @@ Scribe:    haiku    (writing commit msgs is simple)
 
 ---
 
+## Supported Languages
+
+22 languages indexed: JavaScript, TypeScript, Rust, Python, Go, Java, Kotlin, Swift, C, C++, Ruby, PHP, Dart, Elixir, Scala, Zig, Lua, R, Julia, C#, F#, Vue/Svelte/Astro.
+
+50+ directories skipped (node_modules, dist, target, __pycache__, .venv, Pods, etc.) sourced from GitHub's official gitignore templates.
+
+25+ lock files skipped (package-lock.json, Cargo.lock, poetry.lock, go.sum, etc.).
+
+---
+
+## Uninstalling
+
+```bash
+shipfast uninstall
+npm uninstall -g @shipfast-ai/shipfast
+```
+
+Auto-detects and removes from all runtimes. Cleans settings.json hooks.
+
+---
+
 ## License
 
 MIT
+
+Inspired by [Get Shit Done](https://github.com/gsd-build/get-shit-done). Built from scratch.

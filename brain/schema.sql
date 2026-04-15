@@ -155,6 +155,33 @@ CREATE TABLE IF NOT EXISTS hot_files (
 );
 
 -- ============================================================
+-- ARCHITECTURE (auto-computed layers from import graph)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS architecture (
+  file_path   TEXT PRIMARY KEY,
+  layer       INTEGER NOT NULL,        -- auto-derived from import graph (0 = entry, higher = deeper)
+  folder      TEXT,                     -- parent directory path
+  imports_count INTEGER DEFAULT 0,     -- how many files this imports
+  imported_by_count INTEGER DEFAULT 0, -- how many files import this
+  updated_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS folders (
+  folder_path TEXT PRIMARY KEY,
+  file_count  INTEGER DEFAULT 0,
+  total_imports INTEGER DEFAULT 0,
+  total_imported_by INTEGER DEFAULT 0,
+  avg_layer   REAL,
+  role        TEXT,                     -- auto-derived: entry, shared, consumer, leaf, foundation, middle, top
+  updated_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_arch_layer ON architecture(layer);
+CREATE INDEX IF NOT EXISTS idx_arch_folder ON architecture(folder);
+CREATE INDEX IF NOT EXISTS idx_folders_role ON folders(role);
+
+-- ============================================================
 -- CONFIG (replaces config.json in .planning/)
 -- ============================================================
 

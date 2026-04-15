@@ -192,7 +192,179 @@ const TOOLS = {
 
       return { stats, activeTasks: active, recentTasks: recent, checkpoints };
     }
-  }
+  },
+
+  // Feature #6: Graph traversal tools
+
+  brain_graph_traverse: {
+    description: 'Traverse the codebase dependency graph. Find what imports a file, what a file imports, or trace a call chain.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'File path to trace from' },
+        direction: { type: 'string', description: 'inbound (who imports this) or outbound (what this imports) or both', enum: ['inbound', 'outbound', 'both'] },
+        depth: { type: 'number', description: 'How many hops to traverse. Default 2.' }
+      },
+      required: ['file']
+    },
+    handler({ file, direction, depth }) {
+      const d = direction || 'both';
+      const maxDepth = parseInt(depth) || 2;
+      const results = { file, direction: d, inbound: [], outbound: [] };
+
+      if (d === 'inbound' || d === 'both') {
+        results.inbound = query(
+          `SELECT REPLACE(source, 'file:', '') as from_file, kind FROM edges ` +
+          `WHERE target LIKE '%${esc(file)}%' AND kind IN ('imports', 'calls', 'depends') LIMIT 20`
+        );
+      }
+      if (d === 'outbound' || d === 'both') {
+        results.outbound = query(
+          `SELECT REPLACE(target, 'file:', '') as to_file, kind FROM edges ` +
+          `WHERE source LIKE '%${esc(file)}%' AND kind IN ('imports', 'calls', 'depends') LIMIT 20`
+        );
+      }
+      return results;
+    }
+  },
+
+  brain_graph_cochanges: {
+    description: 'Find files that frequently change together (co-change clusters from git history).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'File to find co-changes for. Optional — omit for top clusters.' },
+        min_weight: { type: 'number', description: 'Minimum co-change score (0-1). Default 0.3.' }
+      },
+      required: []
+    },
+    handler({ file, min_weight }) {
+      const w = min_weight || 0.3;
+      if (file) {
+        return query(
+          `SELECT CASE WHEN source LIKE '%${esc(file)}%' THEN REPLACE(target,'file:','') ELSE REPLACE(source,'file:','') END as related, weight ` +
+          `FROM edges WHERE kind = 'co_changes' AND (source LIKE '%${esc(file)}%' OR target LIKE '%${esc(file)}%') AND weight > ${w} ORDER BY weight DESC LIMIT 10`
+        );
+      }
+      return query(`SELECT REPLACE(source,'file:','') as file_a, REPLACE(target,'file:','') as file_b, weight FROM edges WHERE kind = 'co_changes' AND weight > ${w} ORDER BY weight DESC LIMIT 15`);
+    }
+  },
+
+  brain_graph_blast_radius: {
+    description: 'Get the blast radius of changing a file — all files that directly or transitively depend on it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'File path to check blast radius for' },
+        depth: { type: 'number', description: 'How many hops. Default 3.' }
+      },
+      required: ['file']
+    },
+    handler({ file, depth }) {
+      const maxDepth = parseInt(depth) || 3;
+      return query(
+        `WITH RECURSIVE affected(id, d) AS (` +
+        `  SELECT id, 0 FROM nodes WHERE file_path LIKE '%${esc(file)}%'` +
+        `  UNION ` +
+        `  SELECT e.source, a.d + 1 FROM edges e JOIN affected a ON e.target = a.id` +
+        `  WHERE a.d < ${maxDepth} AND e.kind IN ('imports', 'calls', 'depends')` +
+        `) SELECT DISTINCT n.file_path, n.name, n.kind FROM nodes n JOIN affected a ON n.id = a.id WHERE n.kind = 'file' LIMIT 20`
+      );
+    }
+  },
+
+  // Architecture layer tools
+
+  brain_arch_layers: {
+    description: 'Get architecture layer summary — auto-derived from import graph. Layer 0 = entry points (nothing imports them), higher layers = deeper dependencies.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    handler() {
+      return query(
+        "SELECT layer, COUNT(*) as files, SUM(imports_count) as total_imports, SUM(imported_by_count) as total_consumers " +
+        "FROM architecture GROUP BY layer ORDER BY layer"
+      );
+    }
+  },
+
+  brain_arch_folders: {
+    description: 'Get folder roles — auto-detected from import patterns. Roles: entry (imports many, imported by none), shared (imported by many), consumer (imports many), leaf (imports nothing), foundation, middle, top.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    handler() {
+      return query(
+        "SELECT folder_path, file_count, total_imports, total_imported_by, avg_layer, role FROM folders ORDER BY avg_layer LIMIT 40"
+      );
+    }
+  },
+
+  brain_arch_file: {
+    description: 'Get architecture layer, folder, and connection counts for a file.',
+    inputSchema: {
+      type: 'object',
+      properties: { file: { type: 'string', description: 'File path or partial match' } },
+      required: ['file']
+    },
+    handler({ file }) {
+      return query(
+        `SELECT a.*, f.role as folder_role FROM architecture a LEFT JOIN folders f ON a.folder = f.folder_path ` +
+        `WHERE a.file_path LIKE '%${esc(file)}%' LIMIT 10`
+      );
+    }
+  },
+
+  brain_arch_data_flow: {
+    description: 'Trace data flow for a file: upstream consumers (who imports this) and downstream dependencies (what this imports). Shows the complete import chain with layers.',
+    inputSchema: {
+      type: 'object',
+      properties: { file: { type: 'string', description: 'File path to trace' } },
+      required: ['file']
+    },
+    handler({ file }) {
+      const current = query(`SELECT a.*, f.role as folder_role FROM architecture a LEFT JOIN folders f ON a.folder = f.folder_path WHERE a.file_path LIKE '%${esc(file)}%' LIMIT 1`);
+      if (!current.length) return { error: 'File not found' };
+
+      const upstream = query(
+        `SELECT a.file_path, a.layer, a.folder FROM architecture a ` +
+        `JOIN edges e ON ('file:' || a.file_path) = e.source ` +
+        `WHERE e.target LIKE '%${esc(file)}%' AND e.kind = 'imports' ORDER BY a.layer ASC LIMIT 10`
+      );
+      const downstream = query(
+        `SELECT a.file_path, a.layer, a.folder FROM architecture a ` +
+        `JOIN edges e ON ('file:' || a.file_path) = e.target ` +
+        `WHERE e.source LIKE '%${esc(file)}%' AND e.kind = 'imports' ORDER BY a.layer DESC LIMIT 10`
+      );
+      return { file: current[0], upstream_consumers: upstream, downstream_dependencies: downstream };
+    }
+  },
+
+  brain_arch_layer_files: {
+    description: 'List all files at a specific architecture layer.',
+    inputSchema: {
+      type: 'object',
+      properties: { layer: { type: 'number', description: 'Layer number' } },
+      required: ['layer']
+    },
+    handler({ layer }) {
+      return query(
+        `SELECT file_path, folder, imports_count, imported_by_count FROM architecture ` +
+        `WHERE layer = ${parseInt(layer)} ORDER BY imported_by_count DESC LIMIT 30`
+      );
+    }
+  },
+
+  brain_arch_most_connected: {
+    description: 'Find the most connected files — highest total imports + consumers.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'number', description: 'Default 15' } },
+      required: []
+    },
+    handler({ limit }) {
+      return query(
+        `SELECT file_path, layer, folder, imports_count, imported_by_count, ` +
+        `(imports_count + imported_by_count) as total FROM architecture ORDER BY total DESC LIMIT ${parseInt(limit) || 15}`
+      );
+    }
+  },
 };
 
 // ============================================================

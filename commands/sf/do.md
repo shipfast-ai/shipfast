@@ -123,31 +123,65 @@ Before execution:
 
 ## STEP 6: EXECUTE (2-30K tokens)
 
-### Trivial workflow (no agent spawn):
-Execute inline in this context. No separate Builder agent.
-- Read the relevant file
-- Make the change
-- Run build/test if applicable
-- Commit with conventional format
+**CRITICAL RULE FOR ALL WORKFLOWS:**
+Before removing, deleting, or modifying any function/type/selector/export/component:
+1. `grep -r "name" --include="*.ts" --include="*.tsx" .` to find ALL consumers
+2. If other files use it, update them or keep it
+3. NEVER remove without checking consumers first
+4. Run build/typecheck AFTER each task, BEFORE committing
+
+### Trivial workflow (fast-mode, ≤3 edits, no agent spawn):
+Execute inline. No planning, no Scout, no Architect, no Critic.
+1. Read the file(s) + grep for consumers of what you'll change
+2. Make the change (match existing patterns)
+3. Run build: `tsc --noEmit` / `npm run build` / `cargo check`
+4. If build fails, fix (up to 3 attempts)
+5. Commit with conventional format
+6. Done. No SUMMARY, no verification.
+**Redirect**: if work exceeds 3 file edits or needs research → upgrade to medium workflow.
 
 ### Medium workflow (1 Builder agent):
 Launch ONE Builder agent with ALL tasks batched:
-- Agent gets: base prompt (~1.5K) + brain context (~500) + all task descriptions
+- Agent gets: base prompt + brain context + all task descriptions
 - Agent executes tasks sequentially within its context
-- One agent call instead of one per task = massive token savings
+- One agent call instead of one per task = token savings
 - If Critic is not skipped, launch Critic after Builder completes
 
-### Complex workflow (wave-based):
-Group tasks into dependency waves:
-- Wave 1: all independent tasks (can run in parallel)
-- Wave 2: tasks that depend on Wave 1
-- etc.
-For each wave:
-- Launch Builder agent with wave tasks + shared brain context
-- If a task fails after 3 attempts: document as DEFERRED, continue next task
-- Save state to brain.db after each wave (enables resume)
-- Launch Critic after all waves complete
-- Launch Scribe to record decisions and prepare PR description
+### Complex workflow (per-task agents, fresh context each):
+
+**Check brain.db first** — if `/sf-plan` was run, tasks already exist:
+```bash
+sqlite3 -json .shipfast/brain.db "SELECT id, description, plan_text FROM tasks WHERE status = 'pending' ORDER BY created_at;" 2>/dev/null
+```
+
+If tasks found in brain.db, execute them. If not, run inline planning first.
+
+**Per-task execution (fresh context per task):**
+For each pending task in brain.db:
+1. Launch a SEPARATE sf-builder agent with ONLY that task + brain context
+2. Builder gets fresh context — no accumulated garbage from previous tasks
+3. Builder executes: read → grep consumers → implement → build → verify → commit
+4. After Builder completes, update task status in brain.db:
+   ```bash
+   sqlite3 .shipfast/brain.db "UPDATE tasks SET status='passed', commit_sha='[sha]' WHERE id='[id]';"
+   ```
+5. If Builder fails after 3 attempts:
+   ```bash
+   sqlite3 .shipfast/brain.db "UPDATE tasks SET status='failed', error='[error]' WHERE id='[id]';"
+   ```
+6. Continue to next task regardless
+
+**Wave grouping:**
+- Independent tasks (no `depends`) → same wave → launch Builder agents in parallel
+- Dependent tasks → later wave → wait for dependencies to complete
+- Tasks touching same files → sequential (never parallel)
+
+**After all tasks:**
+- Launch Critic agent (fresh context) to review ALL changes: `git diff HEAD~N`
+- Launch Scribe agent (fresh context) to record decisions + learnings to brain.db
+- Save session state for `/sf-resume`
+
+**After execution, run `/sf-verify` for thorough verification.**
 
 ### Builder behavior:
 - Follows deviation tiers: auto-fix bugs (T1-3), STOP for architecture changes (T4)

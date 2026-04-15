@@ -132,6 +132,134 @@ function detectBuildCommand(cwd) {
 }
 
 // ============================================================
+// 3-Level Artifact Validation (gap #40)
+// ============================================================
+
+/**
+ * Level 1: File exists
+ * Level 2: Substantive (not just stubs/empty)
+ * Level 3: Wired (imported and used by other code)
+ */
+function verifyArtifact3Level(cwd, filePath) {
+  const full = path.join(cwd, filePath);
+
+  // Level 1: Exists
+  if (!fs.existsSync(full)) {
+    return { level: 0, passed: false, detail: 'File missing: ' + filePath };
+  }
+
+  // Level 2: Substantive (not empty/stub-only)
+  const content = fs.readFileSync(full, 'utf8');
+  const lines = content.split('\n').filter(l => l.trim() && !l.trim().startsWith('//') && !l.trim().startsWith('*'));
+  if (lines.length < 3) {
+    return { level: 1, passed: false, detail: 'File exists but is empty/stub-only: ' + filePath };
+  }
+
+  // Level 3: Wired (imported somewhere)
+  const basename = path.basename(filePath, path.extname(filePath));
+  try {
+    const result = safeExec('grep', ['-rl', basename, '--include=*.ts', '--include=*.tsx', '--include=*.js', '--include=*.jsx', '.'], {
+      cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    const importers = result.split('\n').filter(f => f && !f.includes(filePath));
+    if (importers.length === 0) {
+      return { level: 2, passed: false, detail: 'File exists and has content but is not imported anywhere: ' + filePath };
+    }
+    return { level: 3, passed: true, detail: 'Wired: imported by ' + importers.slice(0, 3).join(', ') };
+  } catch {
+    return { level: 2, passed: false, detail: 'File exists but could not verify wiring: ' + filePath };
+  }
+}
+
+// ============================================================
+// Data-Flow Tracing (gap #41)
+// ============================================================
+
+/**
+ * Trace data flow for a component: does it receive real data or hardcoded empty?
+ */
+function verifyDataFlow(cwd, filePath) {
+  const full = path.join(cwd, filePath);
+  if (!fs.existsSync(full)) return { passed: null, detail: 'File not found' };
+
+  const content = fs.readFileSync(full, 'utf8');
+  const issues = [];
+
+  // Check for hardcoded empty data
+  const emptyPatterns = [
+    { re: /data:\s*\[\s*\]/, msg: 'Hardcoded empty array as data' },
+    { re: /return\s+\[\s*\]/, msg: 'Returns empty array (no data source)' },
+    { re: /return\s+null/, msg: 'Returns null (no implementation)' },
+    { re: /props\.\w+\s*\|\|\s*\[\s*\]/, msg: 'Fallback to empty array — is prop always empty?' },
+  ];
+
+  for (const { re, msg } of emptyPatterns) {
+    if (re.test(content)) issues.push(msg);
+  }
+
+  // Check for fetch/query without response handling
+  if (content.includes('fetch(') && !content.includes('.then') && !content.includes('await')) {
+    issues.push('Fetch call without response handling');
+  }
+
+  return {
+    passed: issues.length === 0,
+    detail: issues.length === 0 ? 'Data flow looks connected' : 'Data flow issues: ' + issues.join('; ')
+  };
+}
+
+// ============================================================
+// Enhanced Stub Detection (gap #42)
+// ============================================================
+
+function verifyNoStubsDeep(cwd) {
+  let changedFiles;
+  try {
+    changedFiles = safeExec('git', ['diff', '--name-only', 'HEAD'], { cwd, encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+  } catch { return { passed: true, detail: 'Could not detect changed files' }; }
+
+  const stubs = [];
+  const patterns = [
+    // Text stubs
+    { re: /\bTODO\b/i, msg: 'TODO' },
+    { re: /\bFIXME\b/i, msg: 'FIXME' },
+    { re: /\bHACK\b/i, msg: 'HACK' },
+    { re: /\bnot\s+implemented\b/i, msg: 'not implemented' },
+    { re: /\bplaceholder\b/i, msg: 'placeholder' },
+    // Component stubs
+    { re: /return\s+<div>.*placeholder.*<\/div>/i, msg: 'placeholder component' },
+    { re: /return\s+null\s*;?\s*\/\//, msg: 'returns null with comment' },
+    { re: /onClick=\{?\(\)\s*=>\s*\{\s*\}\}?/, msg: 'empty click handler' },
+    // API stubs
+    { re: /Response\.json\(\[\]\)/, msg: 'empty response' },
+    { re: /Response\.json\(\{.*not implemented/i, msg: 'not implemented response' },
+    // Debug artifacts
+    { re: /console\.log\(/, msg: 'console.log' },
+    { re: /debugger\s*;/, msg: 'debugger statement' },
+  ];
+
+  for (const file of changedFiles) {
+    const fullPath = path.join(cwd, file);
+    if (!fs.existsSync(fullPath)) continue;
+    try {
+      const lines = fs.readFileSync(fullPath, 'utf8').split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        for (const { re, msg } of patterns) {
+          if (re.test(lines[i])) {
+            stubs.push(file + ':' + (i + 1) + ': ' + msg);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  return {
+    passed: stubs.length === 0,
+    detail: stubs.length === 0 ? 'No stubs found' : 'Found ' + stubs.length + ' stubs:\n' + stubs.slice(0, 8).join('\n')
+  };
+}
+
+// ============================================================
 // Main verification runner
 // ============================================================
 
@@ -305,6 +433,7 @@ function verifyTddSequence(cwd, numCommits) {
 
 module.exports = {
   extractDoneCriteria, runVerification, scoreResults, recordVerification, formatResults,
-  verifyBuild, verifyNoStubs, detectBuildCommand,
+  verifyBuild, verifyNoStubs, verifyNoStubsDeep, detectBuildCommand,
+  verifyArtifact3Level, verifyDataFlow,
   generateFixTasks, verifyWithAutoFix, verifyTddSequence
 };

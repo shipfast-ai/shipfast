@@ -130,13 +130,13 @@ function installFor(key, runtime) {
   // Copy commands
   const cmdDir = path.join(dir, 'commands', 'sf');
   fs.mkdirSync(cmdDir, { recursive: true });
-  for (const f of ['do.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md'])
+  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','workstream.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md'])
     copy('commands/sf/' + f, path.join(cmdDir, f));
 
   // Copy hooks
   const hooksDir = path.join(dir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
-  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js'])
+  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js'])
     copy('hooks/' + f, path.join(hooksDir, f));
 
   // Copy MCP server
@@ -377,7 +377,7 @@ function writeSettings(dir, hooksDir) {
   }
   function mk(cmd) { return { matcher: '', hooks: [{ type: 'command', command: cmd }] }; }
 
-  for (const [evt, file] of [['PostToolUse','sf-context-monitor.js'],['Notification','sf-statusline.js'],['PreToolUse','sf-first-run.js']]) {
+  for (const [evt, file] of [['PostToolUse','sf-context-monitor.js'],['Notification','sf-statusline.js'],['PreToolUse','sf-first-run.js'],['PreToolUse','sf-prompt-guard.js']]) {
     s.hooks[evt] = s.hooks[evt] || [];
     if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));
   }
