@@ -8,7 +8,6 @@
 
 [![npm version](https://img.shields.io/npm/v/@shipfast-ai/shipfast)](https://www.npmjs.com/package/@shipfast-ai/shipfast)
 [![npm downloads](https://img.shields.io/npm/dw/@shipfast-ai/shipfast)](https://www.npmjs.com/package/@shipfast-ai/shipfast)
-[![GitHub stars](https://img.shields.io/github/stars/shipfast-ai/shipfast)](https://github.com/shipfast-ai/shipfast/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://github.com/shipfast-ai/shipfast/actions/workflows/test.yml/badge.svg)](https://github.com/shipfast-ai/shipfast/actions/workflows/test.yml)
 
