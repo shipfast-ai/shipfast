@@ -225,7 +225,9 @@ If tasks found in brain.db, execute them. If not, run inline planning first.
 
 **Per-task execution (fresh context per task):**
 
-**Progress reporting** — before each task, output:
+**REQUIRED — output progress for EVERY task (do NOT batch or skip):**
+
+Before each task:
 ```
 [N/M] Building: [task description]...
 ```
@@ -237,6 +239,7 @@ Or on failure:
 ```
 [N/M] ✗ [task description] (error: [first 80 chars])
 ```
+If you did not output these lines, this is a process failure.
 
 For each pending task in brain.db:
 1. Launch a SEPARATE sf-builder agent with ONLY that task + brain context + `model: models.builder` from Step 1.5. If `--tdd` flag is set, prepend `MODE: TDD (red→green→refactor). Write failing test FIRST.` to the task context.
@@ -263,13 +266,6 @@ For each pending task in brain.db:
 **Parallel execution within waves:**
 If a wave has 2+ tasks, launch ALL Builder agents in that wave simultaneously using multiple Agent tool calls in a single response. Wait for all to complete before starting the next wave. This is safe because wave tasks are independent by definition.
 
-**After all tasks:**
-- Launch Critic agent (fresh context) with `model: models.critic` to review ALL changes: `git diff HEAD~N`
-- Launch Scribe agent (fresh context) with `model: models.scribe` to record decisions + learnings to brain.db
-- Save session state for `/sf-resume`
-
-**After execution, run `/sf-verify` for thorough verification.**
-
 ### Builder behavior:
 - Follows deviation tiers: auto-fix bugs (T1-3), STOP for architecture changes (T4)
 - Analysis paralysis guard: 5+ reads without writing = STOP
@@ -277,78 +273,88 @@ If a wave has 2+ tasks, launch ALL Builder agents in that wave simultaneously us
 - Stub detection before commit: scan for TODO/FIXME/placeholder
 - Commit hygiene: stage specific files, never `git add .`
 
-### If Critic finds CRITICAL issues:
-Send the issue back to Builder for fix (1 additional agent call, not a full re-run).
-
 ---
 
-## STEP 7: VERIFY (0-3K tokens)
+## STEP 7: MANDATORY POST-EXECUTION VERIFICATION
 
-**Skip if**: trivial tasks with passing build, UNLESS `--verify` flag is set
-**Force if**: `--verify` flag is set, regardless of complexity
+⚠️ **STOP-GATE: Do NOT output the final report or say "Done" until ALL checks below are complete. If you skip verification, the task is FAILED regardless of whether the code works. This is not optional.**
 
-Run goal-backward verification:
-1. Extract done-criteria from the original request + plan
-2. Check each criterion:
-   - File exists? → filesystem check
-   - Symbol exists? → grep check
-   - Build passes? → run build command
-   - No stubs? → scan changed files for TODO/FIXME/placeholder
-   - Behavior works? → mark as "manual verification needed"
-3. Score: N/M criteria met
-   - 100% → PASS
-   - 80%+ → PASS_WITH_WARNINGS (list gaps)
-   - Below 80% → FAIL (list what's missing)
+You MUST complete **ALL** of the following in order. Check each off as you go.
 
-Store verification results in brain.db.
+### 7A. Launch Critic agent (REQUIRED for medium/complex)
 
-### Auto-Fix on Failure
-If verification returns FAIL:
-1. Generate targeted fix tasks from each failure (~200 tokens each, not a fresh agent)
-2. Send fix tasks to Builder for one retry attempt
-3. Re-verify after fixes
-4. If still failing, report as DEFERRED — do not loop further
+Launch sf-critic agent with `model: models.critic` and the full diff:
+```bash
+git diff HEAD~[N commits]
+```
+Wait for Critic to return its verdict. If Critic finds CRITICAL issues → send to Builder for fix (1 additional agent call, not a full re-run).
 
-### TDD Verification (when --tdd flag is set)
-After all tasks complete, verify git log contains the correct commit sequence:
-1. `test(...)` commit (RED phase) — must exist
-2. `feat(...)` commit after it (GREEN phase) — must exist
-3. Optional `refactor(...)` commit
-If sequence is violated, flag as TDD VIOLATION in the report.
+Report: `Critic: [PASS/PASS_WITH_WARNINGS/FAIL] — [N] findings`
 
-### Requirement Verification (when project has REQ-IDs)
-If brain.db has requirements for this phase:
-1. Check each v1 requirement mapped to this phase
-2. Mark as done/pending based on verification results
-3. Report coverage: "Requirements: N/M covered"
+### 7B. Build verification (REQUIRED)
 
-### Branch Audit (automatic when on non-default branch)
+Run the project's build/typecheck command:
+```bash
+npm run build  # or tsc --noEmit / cargo check
+```
+Report: `Build: [PASS/FAIL]`
 
-Runs automatically — no flag needed. Skipped when on the default branch.
+### 7C. Consumer integrity check (REQUIRED)
 
-1. Get current branch and default branch:
+For every function/type/export that was modified or removed across all tasks:
+```bash
+grep -r "removed_symbol" --include="*.ts" --include="*.tsx" --include="*.js" .
+```
+Any remaining consumers = CRITICAL failure. Report: `Consumers: [CLEAN/N broken]`
+
+### 7D. Stub scan (REQUIRED)
+
+Scan all changed files for incomplete work:
+```bash
+git diff HEAD~[N] --name-only
+```
+Then grep each for: TODO, FIXME, HACK, placeholder, console.log, debugger
+
+Report: `Stubs: [CLEAN/N found]`
+
+### 7E. Branch audit (REQUIRED when on non-default branch)
+
 ```bash
 CURRENT=$(git branch --show-current)
 ```
-Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — if empty, fall back to `"main"` as `$DEFAULT`.
+Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — fall back to `"main"`.
 
-2. If `$CURRENT` ≠ `$DEFAULT`, run a compact migration audit:
-   - `git diff $DEFAULT...$CURRENT --diff-filter=D --name-only` → deleted files
-   - For each deleted/modified file, extract removed exports/functions/types
-   - Cross-reference with brain.db edges to find consumers of removed items
-   - Search codebase for renamed/moved symbols
+If `$CURRENT` ≠ `$DEFAULT`:
+- `git diff $DEFAULT...$CURRENT --diff-filter=D --name-only` → deleted files
+- For removed exports, check consumers via brain.db
+- Report: `Branch audit: [N] migrated | [N] missing | [N] safe`
 
-3. Append to verification report (compact format):
-```
-Branch audit ($CURRENT vs $DEFAULT):
-  Migrated: 4 | Missing: 1 (validateToken — 2 consumers) | Safe: 2 | Modified: 1
-```
+### 7F. TDD check (when --tdd flag is set)
 
-4. If any **MISSING** items (removed but still have consumers):
-   - Flag as WARNING in verification score
-   - List each: `WARNING: [symbol] removed but consumed by [files]`
+Verify `test(...)` commits come before `feat(...)` commits. Report: `TDD: [VALID/VIOLATION]`
 
-For full structured report, run `/sf-worktree check`.
+### 7G. Launch Scribe agent (REQUIRED for complex)
+
+Launch sf-scribe agent with `model: models.scribe` to record decisions + learnings to brain.db.
+
+### 7H. Score results
+
+Combine all checks:
+- All pass → **PASS**
+- Minor issues → **PASS_WITH_WARNINGS** (list them)
+- Critical issues → **FAIL** (list them, attempt auto-fix)
+
+### Auto-Fix on Failure
+If FAIL:
+1. Generate targeted fix tasks (~200 tokens each)
+2. Send to Builder for one retry
+3. Re-verify
+4. If still failing → DEFERRED
+
+Store verification results:
+Use the `brain_context` MCP tool with: `{ "action": "set", "scope": "session", "key": "verification", "value": "[JSON results]" }`
+
+Only AFTER 7A-7H are complete, proceed to STEP 8.
 
 ---
 
@@ -374,7 +380,18 @@ Use the `brain_seeds` MCP tool with: `{ "action": "add", "idea": "[idea]", "sour
 
 ## STEP 9: REPORT
 
-**Trivial tasks** (progressive disclosure — minimal output):
+**Before reporting, confirm all post-execution steps completed (complex tasks):**
+- [ ] Progress lines shown [N/M] for every task
+- [ ] Critic reviewed — verdict: ___
+- [ ] Build: ___
+- [ ] Consumer integrity: ___
+- [ ] Stubs: ___
+- [ ] Branch audit (if non-default): ___
+- [ ] Scribe recorded decisions/learnings
+
+**If any checkbox is unchecked, go back and complete it now. Do NOT report with incomplete verification.**
+
+**Trivial tasks**:
 ```
 Done: [one sentence summary]
 ```
@@ -382,15 +399,22 @@ Done: [one sentence summary]
 **Medium tasks**:
 ```
 Done: [summary]
-Commits: [N] | Verification: [PASS/WARN/FAIL]
+Commits: [N] | Build: [PASS/FAIL] | Critic: [verdict] | Consumers: [clean/N broken]
 ```
 
 **Complex tasks** (full dashboard):
 ```
 Done: [summary]
-Commits: [N] | Tasks: [completed]/[total] | Verification: [PASS/WARN/FAIL]
-Tokens: ~[estimate] | Time: [duration]
-Deferred: [list of issues that need manual attention, if any]
+Commits: [N] | Tasks: [completed]/[total]
+
+Verification:
+  Critic:    [PASS/WARNINGS/FAIL] — [N findings]
+  Build:     [PASS/FAIL]
+  Consumers: [CLEAN/N broken]
+  Stubs:     [CLEAN/N found]
+  Branch:    [N migrated, N missing, N safe] (or N/A if default branch)
+
+Deferred: [issues needing manual attention, if any]
 ```
 
 **If session state was saved** (context getting low):
