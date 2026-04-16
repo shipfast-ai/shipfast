@@ -8,8 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-
-const DB_NAME = '.shipfast/brain.db';
+const { DB_NAME } = require('../core/constants.cjs');
 
 // ============================================================
 // Database initialization
@@ -55,7 +54,10 @@ function query(cwd, sql) {
       stdio: ['pipe', 'pipe', 'pipe']
     });
     return result.trim() ? JSON.parse(result) : [];
-  } catch {
+  } catch (err) {
+    if (process.env.SF_DEBUG) {
+      console.error('[brain] query error:', err.message, '\n  SQL:', sql.slice(0, 200));
+    }
     return [];
   }
 }

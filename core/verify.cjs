@@ -14,6 +14,7 @@ const { execFileSync: safeExec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const brain = require('../brain/index.cjs');
+const { BUILD_TIMEOUT_MS } = require('./constants.cjs');
 
 // ============================================================
 // Done criteria extraction
@@ -75,7 +76,7 @@ function verifyBuild(cwd) {
   if (!buildCmd) return { passed: true, detail: 'No build command detected, skipping' };
 
   try {
-    safeExec(buildCmd.cmd, buildCmd.args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 60000 });
+    safeExec(buildCmd.cmd, buildCmd.args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], timeout: BUILD_TIMEOUT_MS });
     return { passed: true, detail: 'Build passed (' + buildCmd.cmd + ' ' + buildCmd.args.join(' ') + ')' };
   } catch (err) {
     const stderr = (err.stderr || '').toString().slice(0, 300);

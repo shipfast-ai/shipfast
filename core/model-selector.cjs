@@ -8,6 +8,7 @@
  */
 
 const brain = require('../brain/index.cjs');
+const { CONFIDENCE, DEFAULT_MODEL, MODEL_COST } = require('./constants.cjs');
 
 /**
  * Select the optimal model for an agent + task combination.
@@ -46,7 +47,7 @@ function selectArchitectModel(cwd, task) {
   if (task.complexity === 'complex' && task.areas && task.areas.length > 3) {
     if (task.domain) {
       const learnings = brain.findLearnings(cwd, task.domain, 3);
-      const highConfidence = learnings.filter(l => l.confidence > 0.8 && l.solution);
+      const highConfidence = learnings.filter(l => l.confidence > CONFIDENCE.HIGH && l.solution);
       if (highConfidence.length === 0) {
         return 'opus'; // uncharted territory + complex = worth the cost
       }
@@ -85,7 +86,7 @@ function selectBuilderModel(cwd, task) {
   // Key insight: if we've solved similar problems before, Haiku can replicate
   if (task.domain) {
     const learnings = brain.findLearnings(cwd, task.domain, 3);
-    const highConfidence = learnings.filter(l => l.confidence > 0.8 && l.solution);
+    const highConfidence = learnings.filter(l => l.confidence > CONFIDENCE.HIGH && l.solution);
     if (highConfidence.length >= 2) {
       return 'haiku'; // well-trodden path
     }
@@ -150,12 +151,7 @@ function selectCriticModel(cwd, task) {
  * Haiku = 1x, Sonnet = 5x, Opus = 25x (approximate)
  */
 function costMultiplier(model) {
-  switch (model) {
-    case 'haiku': return 1;
-    case 'sonnet': return 5;
-    case 'opus': return 25;
-    default: return 5;
-  }
+  return MODEL_COST[model] || MODEL_COST.sonnet;
 }
 
 /**
@@ -166,13 +162,7 @@ function getModelPlan(cwd, pipeline, task) {
   let totalCostUnits = 0;
   let defaultCostUnits = 0;
 
-  const defaultModels = {
-    scout: 'haiku',
-    architect: 'sonnet',
-    builder: 'sonnet',
-    critic: 'haiku',
-    scribe: 'haiku'
-  };
+  const defaultModels = DEFAULT_MODEL;
 
   for (const agent of pipeline) {
     const selected = selectModel(cwd, agent, task);

@@ -13,7 +13,7 @@
 
 'use strict';
 
-const { execFileSync: safeRun } = require('child_process');
+const { execFileSync: safeExec } = require('child_process');
 const path = require('path');
 const brain = require('../brain/index.cjs');
 
@@ -23,7 +23,7 @@ const brain = require('../brain/index.cjs');
 
 function ensureTable(cwd) {
   const dbPath = brain.getBrainPath(cwd);
-  safeRun('sqlite3', [dbPath], {
+  safeExec('sqlite3', [dbPath], {
     input: [
       "DROP TABLE IF EXISTS architecture;",
       "DROP TABLE IF EXISTS folders;",
@@ -181,27 +181,24 @@ function computeArchitecture(cwd) {
     const layer = layers[f];
     const importsCount = (outbound[f] || []).length;
     const importedByCount = (inbound[f] || []).length;
-    const esc = s => s.replace(/'/g, "''");
-
     statements.push(
       `INSERT OR REPLACE INTO architecture (file_path, layer, folder, imports_count, imported_by_count, updated_at) ` +
-      `VALUES ('${esc(f)}', ${layer}, '${esc(folder)}', ${importsCount}, ${importedByCount}, strftime('%s', 'now'));`
+      `VALUES ('${brain.esc(f)}', ${layer}, '${brain.esc(folder)}', ${importsCount}, ${importedByCount}, strftime('%s', 'now'));`
     );
   }
 
   for (const [folder, stats] of Object.entries(folderStats)) {
     const role = detectRole(stats);
     const avgLayer = (stats.layerSum / stats.count).toFixed(1);
-    const esc = s => s.replace(/'/g, "''");
 
     statements.push(
       `INSERT OR REPLACE INTO folders (folder_path, file_count, total_imports, total_imported_by, avg_layer, role, updated_at) ` +
-      `VALUES ('${esc(folder)}', ${stats.count}, ${stats.totalImports}, ${stats.totalImportedBy}, ${avgLayer}, '${role}', strftime('%s', 'now'));`
+      `VALUES ('${brain.esc(folder)}', ${stats.count}, ${stats.totalImports}, ${stats.totalImportedBy}, ${avgLayer}, '${role}', strftime('%s', 'now'));`
     );
   }
 
   statements.push('COMMIT;');
-  safeRun('sqlite3', [dbPath], { input: statements.join('\n'), stdio: ['pipe', 'pipe', 'pipe'] });
+  safeExec('sqlite3', [dbPath], { input: statements.join('\n'), stdio: ['pipe', 'pipe', 'pipe'] });
 
   return { computed: files.length, folders: Object.keys(folderStats).length };
 }

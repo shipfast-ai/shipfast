@@ -152,13 +152,10 @@ function hashContent(content) {
 }
 
 // ============================================================
-// SQL escaping (for batch mode)
+// SQL escaping — use brain.esc() as single source of truth
 // ============================================================
 
-function esc(s) {
-  if (s == null) return '';
-  return String(s).replace(/'/g, "''");
-}
+const esc = brain.esc;
 
 // ============================================================
 // Batch SQL collector

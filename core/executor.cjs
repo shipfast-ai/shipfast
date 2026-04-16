@@ -94,7 +94,8 @@ function groupIntoWaves(tasks) {
  */
 function planExecution(cwd, analysis, tasks) {
   const { complexity } = analysis;
-  const context = brain.buildAgentContext(cwd, {
+  const contextBuilder = require('./context-builder.cjs');
+  const context = contextBuilder.buildContext(cwd, {
     agent: 'builder',
     affectedFiles: tasks.flatMap(t => t.files || []),
     phase: analysis.phase,

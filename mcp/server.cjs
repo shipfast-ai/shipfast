@@ -20,7 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync: safeRun } = require('child_process');
+const { execFileSync: safeExec } = require('child_process');
 
 const CWD = process.env.SHIPFAST_CWD || process.cwd();
 const DB_PATH = path.join(CWD, '.shipfast', 'brain.db');
@@ -32,7 +32,7 @@ const DB_PATH = path.join(CWD, '.shipfast', 'brain.db');
 function query(sql) {
   if (!fs.existsSync(DB_PATH)) return [];
   try {
-    const result = safeRun('sqlite3', ['-json', DB_PATH, sql], {
+    const result = safeExec('sqlite3', ['-json', DB_PATH, sql], {
       encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
     });
     return result.trim() ? JSON.parse(result) : [];
@@ -42,7 +42,7 @@ function query(sql) {
 function run(sql) {
   if (!fs.existsSync(DB_PATH)) return false;
   try {
-    safeRun('sqlite3', [DB_PATH, sql], { stdio: ['pipe', 'pipe', 'pipe'] });
+    safeExec('sqlite3', [DB_PATH, sql], { stdio: ['pipe', 'pipe', 'pipe'] });
     return true;
   } catch { return false; }
 }
@@ -67,7 +67,7 @@ function queryLinked(sql) {
     const linkedDb = path.join(repoPath, '.shipfast', 'brain.db');
     if (!fs.existsSync(linkedDb)) continue;
     try {
-      const r = safeRun('sqlite3', ['-json', linkedDb, sql], {
+      const r = safeExec('sqlite3', ['-json', linkedDb, sql], {
         encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
       }).trim();
       if (r) {
@@ -82,6 +82,7 @@ function queryLinked(sql) {
   return results;
 }
 
+// Keep in sync with brain/index.cjs:esc() — MCP server runs as separate process
 function esc(s) {
   return s == null ? '' : String(s).replace(/'/g, "''");
 }

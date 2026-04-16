@@ -7,7 +7,7 @@
 
 'use strict';
 
-const { execFileSync: safeRun } = require('child_process');
+const { execFileSync: safeExec } = require('child_process');
 const brain = require('../brain/index.cjs');
 
 // ============================================================
@@ -66,7 +66,7 @@ function verifyCommits(cwd, completedTasks) {
       continue;
     }
     try {
-      safeRun('git', ['cat-file', '-t', task.commitSha], {
+      safeExec('git', ['cat-file', '-t', task.commitSha], {
         cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
       });
       verified.push(task);

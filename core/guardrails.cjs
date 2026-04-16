@@ -13,6 +13,7 @@
 const brain = require('../brain/index.cjs');
 const skipLogic = require('./skip-logic.cjs');
 const modelSelector = require('./model-selector.cjs');
+const { BUDGET_PCT, CONFIDENCE } = require('./constants.cjs');
 
 // ============================================================
 // 1. Token-aware quality scaling
@@ -29,12 +30,12 @@ function adjustForBudget(cwd, sessionId, pipeline, task) {
 
   const adjustments = { pipeline: [...pipeline], models: {}, notes: [] };
 
-  if (remainingPct > 60) {
+  if (remainingPct > BUDGET_PCT.OK) {
     // Full quality — no adjustments
     return adjustments;
   }
 
-  if (remainingPct > 40) {
+  if (remainingPct > BUDGET_PCT.LOW) {
     // Conserve: skip scribe, use haiku for critic
     adjustments.pipeline = pipeline.filter(a => a !== 'scribe');
     adjustments.models.critic = 'haiku';
@@ -42,7 +43,7 @@ function adjustForBudget(cwd, sessionId, pipeline, task) {
     return adjustments;
   }
 
-  if (remainingPct > 20) {
+  if (remainingPct > BUDGET_PCT.EMERGENCY) {
     // Minimal: skip scribe + critic, haiku for all
     adjustments.pipeline = pipeline.filter(a => a !== 'scribe' && a !== 'critic');
     adjustments.models.scout = 'haiku';
@@ -76,8 +77,8 @@ function accelerateFromLearnings(cwd, task, pipeline) {
   const learnings = brain.findLearnings(cwd, task.domain, 5);
   if (!learnings.length) return { pipeline, acceleration: 'none' };
 
-  const highConfidence = learnings.filter(l => l.confidence > 0.8 && l.solution);
-  const mediumConfidence = learnings.filter(l => l.confidence > 0.5 && l.solution);
+  const highConfidence = learnings.filter(l => l.confidence > CONFIDENCE.HIGH && l.solution);
+  const mediumConfidence = learnings.filter(l => l.confidence > CONFIDENCE.MEDIUM && l.solution);
 
   if (highConfidence.length >= 3) {
     // Well-known territory — skip everything except builder

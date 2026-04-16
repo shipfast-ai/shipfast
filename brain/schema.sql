@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS context (
 );
 
 CREATE INDEX IF NOT EXISTS idx_context_scope ON context(scope);
+CREATE INDEX IF NOT EXISTS idx_context_scope_key ON context(scope, key);
 
 -- ============================================================
 -- DECISIONS (replaces decision sections in STATE.md)
@@ -270,3 +271,4 @@ CREATE TABLE IF NOT EXISTS _migrations (
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (1, 'initial_schema');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (2, 'add_seeds_table');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (3, 'add_model_performance_table');
+INSERT OR IGNORE INTO _migrations (version, name) VALUES (4, 'add_context_index_and_cleanup');

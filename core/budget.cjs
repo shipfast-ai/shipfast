@@ -7,6 +7,7 @@
  */
 
 const brain = require('../brain/index.cjs');
+const { BUDGET, DEFAULT_MODEL } = require('./constants.cjs');
 
 // ============================================================
 // Budget check + degradation
@@ -42,7 +43,7 @@ function checkBudget(cwd, sessionId, agent, estimatedCost) {
 }
 
 function suggestDegradation(agent, remaining) {
-  if (remaining < 2000) {
+  if (remaining < BUDGET.CRITICAL) {
     return {
       message: 'Only enough for a simple edit. Skipping review.',
       skipAgents: ['critic', 'scribe'],
@@ -50,7 +51,7 @@ function suggestDegradation(agent, remaining) {
     };
   }
 
-  if (remaining < 5000) {
+  if (remaining < BUDGET.WARNING) {
     return {
       message: 'Switching to lightweight mode.',
       skipAgents: ['scribe'],
@@ -58,7 +59,7 @@ function suggestDegradation(agent, remaining) {
     };
   }
 
-  if (remaining < 15000) {
+  if (remaining < BUDGET.COMFORTABLE) {
     return {
       message: 'Using fast models for non-critical agents.',
       skipAgents: [],
@@ -100,14 +101,7 @@ function resolveModel(cwd, agent) {
 }
 
 function getDefaultModel(agent) {
-  const defaults = {
-    scout: 'haiku',
-    architect: 'sonnet',
-    builder: 'sonnet',
-    critic: 'haiku',
-    scribe: 'haiku'
-  };
-  return defaults[agent] || 'sonnet';
+  return DEFAULT_MODEL[agent] || 'sonnet';
 }
 
 module.exports = {
