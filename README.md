@@ -82,6 +82,33 @@ This skips ALL permission checks — use only in trusted environments.
 
 ## How It Works
 
+### 0. Discover (for new projects)
+
+```
+/sf-project Build a SaaS billing system
+```
+
+Before any planning, the LLM acts as a **senior technical discovery lead** — asking project-specific questions until it understands the full picture.
+
+**10-category coverage framework** (the LLM must understand all before proceeding):
+
+| Category | What it captures |
+|----------|-----------------|
+| Problem | What pain point does this solve? For whom? |
+| Users | Who uses it? Distinct roles/needs? |
+| Core Flow | Primary user journey, step by step |
+| Data | What's created, stored, queried? Relationships? |
+| Boundaries | What's v1? What's explicitly NOT v1? |
+| Tech | Stack decisions (or detected from existing code) |
+| Auth | Who can do what? Access control model? |
+| Integrations | External services, APIs, third-party deps? |
+| Constraints | Timeline, team, budget, compliance? |
+| Risks | What could go wrong? Hardest part? |
+
+Questions are **generated dynamically by the LLM** — not static templates. A SaaS project gets billing/multi-tenant questions. A CLI tool gets input/output questions. An API gets protocol/auth questions.
+
+**Anti-loop**: max 4 rounds (16 questions). 8/10 categories clear = stop. User can say "enough" anytime. Safe tech defaults assumed without asking (PostgreSQL, REST, JWT). All answers stored as locked decisions in brain.db.
+
 ### 1. Discuss (when needed)
 
 ```
