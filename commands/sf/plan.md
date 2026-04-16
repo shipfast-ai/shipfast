@@ -50,9 +50,8 @@ Check for ambiguity (rule-based, zero tokens):
 - SCOPE: >30 words with conjunctions
 
 If ambiguous: ask 2-5 targeted questions. Store answers as locked decisions in brain.db:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO decisions (question, decision, reasoning, phase) VALUES ('[Q]', '[A]', '[why]', '[phase]');"
-```
+
+Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[Q]", "decision": "[A]", "reasoning": "[why]", "phase": "[phase]" }`
 
 ## Step 4: Architect (fresh agent)
 
@@ -72,14 +71,12 @@ Architect's output must include for EACH task:
 ## Step 5: Store tasks in brain.db
 
 For each task from Architect, store in brain.db:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO tasks (id, phase, description, plan_text, status) VALUES ('[id]', '[phase]', '[description]', '[full task details]', 'pending');"
-```
+
+Use the `brain_tasks` MCP tool with: `{ "action": "add", "id": "[id]", "phase": "[phase]", "description": "[description]", "plan_text": "[full task details]", "status": "pending" }`
 
 Also store must-haves:
-```bash
-sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('phase:[name]:must_haves', 'phase', 'must_haves:[name]', '[JSON must-haves]', 1, strftime('%s', 'now'));"
-```
+
+Use the `brain_context` MCP tool with: `{ "action": "set", "id": "phase:[name]:must_haves", "scope": "phase", "key": "must_haves:[name]", "value": "[JSON must-haves]" }`
 
 ## Step 6: Report
 

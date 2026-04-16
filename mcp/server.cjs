@@ -458,6 +458,136 @@ const TOOLS = {
       );
     }
   },
+
+  brain_tasks: {
+    description: 'List, add, or update tasks. Use this instead of raw sqlite3 commands for task management.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'list, add, or update', enum: ['list', 'add', 'update'] },
+        status_filter: { type: 'string', description: 'Filter by status: pending, running, passed, failed, rolled_back (for list)' },
+        phase: { type: 'string', description: 'Filter by phase (for list) or set phase (for add)' },
+        id: { type: 'string', description: 'Task ID (required for update, optional for add)' },
+        description: { type: 'string', description: 'Task description (for add)' },
+        plan_text: { type: 'string', description: 'Task plan details (for add)' },
+        status: { type: 'string', description: 'New status (for update): pending, running, passed, failed, rolled_back' },
+        commit_sha: { type: 'string', description: 'Commit SHA (for update on pass)' },
+        error: { type: 'string', description: 'Error message (for update on fail)' },
+        limit: { type: 'number', description: 'Max results (for list). Default 20.' }
+      },
+      required: ['action']
+    },
+    handler({ action, status_filter, phase, id, description, plan_text, status, commit_sha, error, limit }) {
+      if (action === 'add') {
+        if (!description) return { error: 'description is required' };
+        const taskId = id || ('task:' + Date.now());
+        const ok = run(
+          `INSERT OR REPLACE INTO tasks (id, phase, description, plan_text, status) ` +
+          `VALUES ('${esc(taskId)}', '${esc(phase || '')}', '${esc(description)}', '${esc(plan_text || '')}', 'pending')`
+        );
+        return ok ? { status: 'created', id: taskId } : { error: 'failed to insert' };
+      }
+      if (action === 'update') {
+        if (!id) return { error: 'id is required for update' };
+        const sets = [];
+        if (status) sets.push(`status = '${esc(status)}'`);
+        if (commit_sha) sets.push(`commit_sha = '${esc(commit_sha)}'`);
+        if (error !== undefined) sets.push(`error = '${esc(error)}'`);
+        if (status === 'running') sets.push(`started_at = strftime('%s', 'now')`);
+        if (status === 'passed' || status === 'failed') sets.push(`finished_at = strftime('%s', 'now')`);
+        if (sets.length === 0) return { error: 'nothing to update' };
+        const ok = run(`UPDATE tasks SET ${sets.join(', ')} WHERE id = '${esc(id)}'`);
+        return ok ? { status: 'updated', id } : { error: 'failed to update' };
+      }
+      // list
+      const conditions = [];
+      if (status_filter) conditions.push(`status = '${esc(status_filter)}'`);
+      if (phase) conditions.push(`phase = '${esc(phase)}'`);
+      const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+      return query(`SELECT id, phase, description, status, commit_sha, error, tokens_used, attempts FROM tasks ${where} ORDER BY created_at DESC LIMIT ${parseInt(limit) || 20}`);
+    }
+  },
+
+  brain_context: {
+    description: 'Get or set scoped context (project, phase, worktree, session). Use this instead of raw sqlite3 for context management.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'get, set, or list', enum: ['get', 'set', 'list'] },
+        scope: { type: 'string', description: 'Scope: project, milestone, phase, task, worktree, session' },
+        key: { type: 'string', description: 'Context key (required for get/set)' },
+        value: { type: 'string', description: 'Value to store (required for set). JSON string for structured data.' }
+      },
+      required: ['action', 'scope']
+    },
+    handler({ action, scope, key, value }) {
+      if (action === 'set') {
+        if (!key || !value) return { error: 'key and value required for set' };
+        const ok = run(
+          `INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) ` +
+          `VALUES ('${esc(scope)}:${esc(key)}', '${esc(scope)}', '${esc(key)}', '${esc(value)}', ` +
+          `COALESCE((SELECT version FROM context WHERE id = '${esc(scope)}:${esc(key)}'), 0) + 1, strftime('%s', 'now'))`
+        );
+        return ok ? { status: 'stored', scope, key } : { error: 'failed to store' };
+      }
+      if (action === 'get') {
+        if (!key) return { error: 'key required for get' };
+        const rows = query(`SELECT value, version FROM context WHERE scope = '${esc(scope)}' AND key = '${esc(key)}'`);
+        return rows.length ? rows[0] : { value: null };
+      }
+      // list
+      return query(`SELECT key, value FROM context WHERE scope = '${esc(scope)}' ORDER BY updated_at DESC LIMIT 20`);
+    }
+  },
+
+  brain_config: {
+    description: 'Get or set config values (token budget, model tiers, default branch, post-ship hook, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'get, set, or list', enum: ['get', 'set', 'list'] },
+        key: { type: 'string', description: 'Config key (required for get/set)' },
+        value: { type: 'string', description: 'Config value (required for set)' }
+      },
+      required: ['action']
+    },
+    handler({ action, key, value }) {
+      if (action === 'set') {
+        if (!key || value === undefined) return { error: 'key and value required' };
+        const ok = run(`INSERT OR REPLACE INTO config (key, value) VALUES ('${esc(key)}', '${esc(value)}')`);
+        return ok ? { status: 'set', key, value } : { error: 'failed to set' };
+      }
+      if (action === 'get') {
+        if (!key) return { error: 'key required' };
+        const rows = query(`SELECT value FROM config WHERE key = '${esc(key)}'`);
+        return rows.length ? { key, value: rows[0].value } : { key, value: null };
+      }
+      // list
+      return query("SELECT key, value FROM config ORDER BY key");
+    }
+  },
+
+  brain_model_outcome: {
+    description: 'Record model performance outcome for the feedback loop. Tracks success/failure per agent+model+domain.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', description: 'Agent name: scout, architect, builder, critic, scribe' },
+        model: { type: 'string', description: 'Model used: haiku, sonnet, opus' },
+        domain: { type: 'string', description: 'Domain: auth, ui, database, etc.' },
+        task_id: { type: 'string', description: 'Task ID' },
+        outcome: { type: 'string', description: 'success, failure, or retry', enum: ['success', 'failure', 'retry'] }
+      },
+      required: ['agent', 'model', 'outcome']
+    },
+    handler({ agent, model, domain, task_id, outcome }) {
+      const ok = run(
+        `INSERT INTO model_performance (agent, model, domain, task_id, outcome) ` +
+        `VALUES ('${esc(agent)}', '${esc(model)}', '${esc(domain || '')}', '${esc(task_id || '')}', '${esc(outcome)}')`
+      );
+      return ok ? { status: 'recorded', agent, model, outcome } : { error: 'failed to record' };
+    }
+  },
 };
 
 // ============================================================

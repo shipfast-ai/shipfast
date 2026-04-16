@@ -89,9 +89,8 @@ PR ready: https://github.com/[org]/[repo]/compare/main...[branch]?expand=1
 ## Step 6: Post-Ship Hook (optional)
 
 Check brain.db for a configured post-ship hook:
-```bash
-sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key = 'post_ship_hook';" 2>/dev/null
-```
+
+Use the `brain_config` MCP tool with: `{ "action": "get", "key": "post_ship_hook" }`
 
 If a hook is configured (e.g., `npm run deploy`, `./scripts/notify.sh`):
 1. Report: `Running post-ship hook: [command]`

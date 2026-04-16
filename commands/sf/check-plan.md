@@ -17,10 +17,9 @@ Catches scope creep, missing consumers, broken dependencies, and uncovered must-
 
 ## Step 1: Load tasks and must-haves
 
-```bash
-sqlite3 -json .shipfast/brain.db "SELECT id, description, plan_text FROM tasks WHERE status = 'pending' ORDER BY created_at;" 2>/dev/null
-sqlite3 -json .shipfast/brain.db "SELECT value FROM context WHERE key LIKE 'must_haves:%' LIMIT 1;" 2>/dev/null
-```
+Use the `brain_tasks` MCP tool with: `{ "action": "list", "status": "pending" }` — returns pending tasks ordered by created_at.
+
+Use the `brain_context` MCP tool with: `{ "action": "get", "key_like": "must_haves:%", "limit": 1 }` — returns the most recent must-haves entry.
 
 ## Step 2: Check each task
 

@@ -21,14 +21,11 @@ without the biases accumulated during execution.
 
 ## Step 1: Load must-haves from brain.db
 
-```bash
-sqlite3 -json .shipfast/brain.db "SELECT value FROM context WHERE key LIKE 'must_haves:%' ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null
-```
+Use the `brain_context` MCP tool with: `{ "action": "get", "key_like": "must_haves:%", "limit": 1 }` — returns the most recently updated must-haves entry.
 
 If no must-haves stored, extract from the task descriptions:
-```bash
-sqlite3 -json .shipfast/brain.db "SELECT description FROM tasks WHERE status = 'passed' ORDER BY created_at;" 2>/dev/null
-```
+
+Use the `brain_tasks` MCP tool with: `{ "action": "list", "status": "passed" }` — returns passed tasks ordered by created_at.
 
 ## Step 2: Check observable truths
 
@@ -135,9 +132,7 @@ Fix with: /sf-do [fix description]
 
 ## Step 9: Store results
 
-```bash
-sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('verify:latest', 'session', 'verification', '[JSON results]', 1, strftime('%s', 'now'));"
-```
+Use the `brain_context` MCP tool with: `{ "action": "set", "id": "verify:latest", "scope": "session", "key": "verification", "value": "[JSON results]" }`
 
 ## Step 10: Interactive UAT (if complex)
 

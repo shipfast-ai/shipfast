@@ -221,7 +221,7 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 **Incremental indexing**: ~300ms for changed files. Deleted files auto-cleaned. Stale learnings auto-pruned.
 
-**MCP Server**: 18 structured tools for IDE integration. LLMs call these instead of improvising SQL.
+**MCP Server**: 23 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
 
 ---
 

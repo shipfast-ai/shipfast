@@ -16,9 +16,7 @@ reverts one specific task by ID. /sf-rollback works on the most recent session.
 
 ## Step 1: Load session history
 
-```bash
-sqlite3 -json .shipfast/brain.db "SELECT id, description, status, commit_sha FROM tasks WHERE status = 'passed' ORDER BY finished_at DESC LIMIT 20;" 2>/dev/null
-```
+Use the `brain_tasks` MCP tool with: `{ "action": "list", "status": "passed", "limit": 20 }` — returns passed tasks ordered by finished_at descending.
 
 ## Step 2: Determine scope
 
@@ -45,8 +43,8 @@ Use AskUserQuestion if the scope is `all` (higher risk).
 For each task (in reverse order — newest first):
 ```bash
 git revert --no-edit [commit_sha]
-sqlite3 .shipfast/brain.db "UPDATE tasks SET status='rolled_back' WHERE id='[id]';"
 ```
+Use the `brain_tasks` MCP tool with: `{ "action": "update", "id": "[id]", "status": "rolled_back" }`
 
 If a revert conflicts:
 ```

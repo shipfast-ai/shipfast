@@ -40,9 +40,8 @@ If the project involves unfamiliar technology or external integrations, launch *
 4. **Integration Scout** — What external services/APIs are needed? Auth, webhooks, SDKs.
 
 Each Scout runs in its own context. Findings are stored in brain.db:
-```bash
-sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('project:research:[topic]', 'project', 'research:[topic]', '[findings JSON]', 1, strftime('%s', 'now'));"
-```
+
+Use the `brain_context` MCP tool with: `{ "action": "set", "id": "project:research:[topic]", "scope": "project", "key": "research:[topic]", "value": "[findings JSON]" }`
 
 Skip this step for simple projects or projects where brain.db already has relevant decisions.
 

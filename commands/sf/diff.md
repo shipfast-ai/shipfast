@@ -14,9 +14,7 @@ to the task that caused it, making it easy to review what was done.
 
 ## Step 1: Get recent passed tasks
 
-```bash
-sqlite3 -json .shipfast/brain.db "SELECT id, description, commit_sha, status FROM tasks WHERE status = 'passed' AND commit_sha IS NOT NULL ORDER BY finished_at DESC LIMIT 10;" 2>/dev/null
-```
+Use the `brain_tasks` MCP tool with: `{ "action": "list", "status": "passed", "has_commit_sha": true, "limit": 10 }` — returns passed tasks with commits ordered by finished_at descending.
 
 ## Step 2: For each task, get the diff stats
 

@@ -15,44 +15,36 @@ Unlike GSD's 7 markdown mapper agents, this queries the existing SQLite brain di
 Run these queries and format the output. Do NOT modify the queries.
 
 ## File structure
-```bash
-sqlite3 .shipfast/brain.db "SELECT file_path FROM nodes WHERE kind = 'file' ORDER BY file_path;" 2>/dev/null | head -50
-```
+
+Use the `brain_search` MCP tool with: `{ "query": "kind:file", "limit": 50 }` — list all file nodes ordered by path.
 
 ## Symbol counts by kind
-```bash
-sqlite3 .shipfast/brain.db "SELECT kind, COUNT(*) as count FROM nodes GROUP BY kind ORDER BY count DESC;" 2>/dev/null
-```
+
+Use the `brain_search` MCP tool with: `{ "query": "group_by:kind" }` — get node counts grouped by kind.
 
 ## Top functions (most connected)
-```bash
-sqlite3 .shipfast/brain.db "SELECT n.name, n.file_path, n.signature, COUNT(e.target) as connections FROM nodes n LEFT JOIN edges e ON n.id = e.source WHERE n.kind = 'function' GROUP BY n.id ORDER BY connections DESC LIMIT 15;" 2>/dev/null
-```
+
+Use the `brain_search` MCP tool with: `{ "query": "kind:function order_by:connections", "limit": 15 }` — get functions with their connection counts.
 
 ## Hot files (most changed)
-```bash
-sqlite3 .shipfast/brain.db "SELECT file_path, change_count FROM hot_files ORDER BY change_count DESC LIMIT 15;" 2>/dev/null
-```
+
+Use the `brain_hot_files` MCP tool with: `{ "limit": 15 }` — returns files ordered by change_count descending.
 
 ## Import graph (top connections)
-```bash
-sqlite3 .shipfast/brain.db "SELECT REPLACE(source,'file:','') as from_file, REPLACE(target,'file:','') as to_file, kind FROM edges WHERE kind = 'imports' LIMIT 20;" 2>/dev/null
-```
+
+Use the `brain_graph_cochanges` MCP tool with: `{ "kind": "imports", "limit": 20 }` — get top import edges between files.
 
 ## Co-change clusters
-```bash
-sqlite3 .shipfast/brain.db "SELECT REPLACE(source,'file:','') as file_a, REPLACE(target,'file:','') as file_b, weight FROM edges WHERE kind = 'co_changes' AND weight > 0.3 ORDER BY weight DESC LIMIT 15;" 2>/dev/null
-```
+
+Use the `brain_graph_cochanges` MCP tool with: `{ "min_weight": 0.3, "limit": 15 }` — get co-change pairs with weight > 0.3 ordered by weight descending.
 
 ## Decisions made
-```bash
-sqlite3 .shipfast/brain.db "SELECT question, decision, phase FROM decisions ORDER BY created_at DESC LIMIT 10;" 2>/dev/null
-```
+
+Use the `brain_decisions` MCP tool with: `{ "action": "list", "limit": 10 }` — returns decisions ordered by created_at descending.
 
 ## Learnings
-```bash
-sqlite3 .shipfast/brain.db "SELECT pattern, problem, solution, confidence FROM learnings WHERE confidence > 0.3 ORDER BY confidence DESC LIMIT 10;" 2>/dev/null
-```
+
+Use the `brain_learnings` MCP tool with: `{ "action": "list", "min_confidence": 0.3, "limit": 10 }` — returns learnings with confidence > 0.3 ordered by confidence descending.
 
 Format as:
 

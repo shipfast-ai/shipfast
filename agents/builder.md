@@ -61,9 +61,8 @@ Pre-existing problems in other files → do NOT fix. Output:
 `OUT_OF_SCOPE: [file:line] [issue]`
 
 For each out-of-scope issue, also record it as a seed for future work:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO seeds (idea, source_task, domain, priority) VALUES ('[improvement idea]', '[current task id]', '[domain]', 'someday');"
-```
+
+Use the `brain_seeds` MCP tool with: `{ "action": "add", "idea": "[improvement idea]", "source_task": "[current task id]", "domain": "[domain]", "priority": "someday" }`
 </deviation_tiers>
 
 <patterns>

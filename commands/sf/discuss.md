@@ -112,9 +112,8 @@ After each answer, score it:
 ## Step 5: Lock Decisions
 
 Store each answer in brain.db with domain tag:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO decisions (question, decision, reasoning, phase, tags) VALUES ('[question]', '[answer]', 'User-provided via discussion', 'discuss', '[TYPE],[domain]');"
-```
+
+Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[question]", "decision": "[answer]", "reasoning": "User-provided via discussion", "phase": "discuss", "tags": "[TYPE],[domain]" }`
 
 These decisions are:
 - Injected into all downstream agent contexts

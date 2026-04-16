@@ -24,8 +24,8 @@ can work simultaneously.
 ### list
 ```bash
 git worktree list
-sqlite3 -json .shipfast/brain.db "SELECT key, value FROM context WHERE scope = 'worktree' ORDER BY updated_at DESC;" 2>/dev/null
 ```
+Use the `brain_context` MCP tool with: `{ "action": "list", "scope": "worktree" }` — returns all worktree context entries ordered by updated_at descending.
 Show all worktrees with path, branch, status (active/complete), and task counts.
 
 ### create <task description or name>
@@ -65,9 +65,8 @@ Branch name for this worktree?
 **Step 3: Multi-repo check**
 
 Query brain.db for linked repos:
-```bash
-sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key = 'linked_repos';" 2>/dev/null
-```
+
+Use the `brain_config` MCP tool with: `{ "action": "get", "key": "linked_repos" }`
 
 If linked repos exist, ask which repos need this worktree (AskUserQuestion):
 ```
@@ -92,9 +91,8 @@ git -C [linked-path] worktree add [linked-path]/.shipfast/worktrees/[name] -b [b
 ```
 
 **Step 5: Store metadata**
-```bash
-sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('worktree:[name]', 'worktree', '[name]', '{\"status\":\"active\",\"branch\":\"[branch-name]\",\"path\":\".shipfast/worktrees/[name]\",\"repos\":[\".\"],\"created\":\"[timestamp]\"}', 1, strftime('%s', 'now'));"
-```
+
+Use the `brain_context` MCP tool with: `{ "action": "set", "id": "worktree:[name]", "scope": "worktree", "key": "[name]", "value": "{\"status\":\"active\",\"branch\":\"[branch-name]\",\"path\":\".shipfast/worktrees/[name]\",\"repos\":[\".\"],\"created\":\"[timestamp]\"}" }`
 
 **Step 6: Report**
 ```
@@ -129,8 +127,8 @@ Note: Unlike branches, worktrees don't need `git checkout`. Just `cd` into the d
 ```bash
 git -C .shipfast/worktrees/[name] status --short
 git -C .shipfast/worktrees/[name] log --oneline -5
-sqlite3 -json .shipfast/brain.db "SELECT id, description, status FROM tasks WHERE phase LIKE '%[name]%' ORDER BY created_at;" 2>/dev/null
 ```
+Use the `brain_tasks` MCP tool with: `{ "action": "list", "phase_contains": "[name]" }` — returns tasks for this worktree ordered by created_at.
 Show: uncommitted changes, recent commits, and pending tasks for this worktree.
 
 ### check [name]
@@ -140,18 +138,10 @@ Structured migration audit comparing worktree branch (or current branch) against
 If `[name]` is provided, check that worktree's branch. If omitted, check the current branch.
 
 **Step 1: Resolve branches**
-```bash
-# Get default branch from brain.db (falls back to 'main')
-DEFAULT=$(sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key='default_branch';" 2>/dev/null)
-[ -z "$DEFAULT" ] && DEFAULT="main"
 
-# Get worktree's branch
-if [name] provided:
-  BRANCH=$(sqlite3 -json .shipfast/brain.db "SELECT value FROM context WHERE key='[name]' AND scope='worktree';" | parse branch)
-else:
-  BRANCH=$(git branch --show-current)
-fi
-```
+Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — if empty, fall back to `"main"` as `$DEFAULT`.
+
+Get worktree's branch: if `[name]` is provided, use the `brain_context` MCP tool with: `{ "action": "get", "scope": "worktree", "key": "[name]" }` and parse the `branch` field. Otherwise, run `git branch --show-current` to get `$BRANCH`.
 
 **Step 2: Get changed files**
 ```bash
@@ -187,14 +177,9 @@ grep -rl "SYMBOL_NAME" --include="*.ts" --include="*.tsx" --include="*.js" --inc
    - Found in a DIFFERENT file → **MIGRATED** (show `old_path → new_path`)
 
 2. **Check consumers via brain.db**:
-```bash
-sqlite3 -json .shipfast/brain.db "
-  SELECT REPLACE(source, 'file:', '') as consumer
-  FROM edges
-  WHERE target LIKE '%SYMBOL_NAME%'
-  AND kind IN ('imports', 'calls', 'depends')
-"
-```
+
+   Use the `brain_search` MCP tool with: `{ "query": "consumers:SYMBOL_NAME kind:imports,calls,depends" }` — returns files that consume the given symbol.
+
    - Has consumers AND not found elsewhere → **MISSING** (show consumers)
    - Zero consumers AND not found elsewhere → **SAFELY REMOVED**
 
@@ -263,17 +248,14 @@ Warning: [N] missing items with active consumers. Merge anyway?
 ```
 
 3. Get the default branch:
-```bash
-DEFAULT=$(sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key='default_branch';" 2>/dev/null)
-[ -z "$DEFAULT" ] && DEFAULT="main"
-```
+
+   Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — if empty, fall back to `"main"` as `$DEFAULT`.
 
 4. Ask: "Merge [branch] into $DEFAULT and remove worktree? [y/n]"
 
 5. If yes, also check multi-repo:
-```bash
-REPOS=$(sqlite3 .shipfast/brain.db "SELECT value FROM context WHERE id='worktree:[name]';" | parse repos)
-```
+
+   Use the `brain_context` MCP tool with: `{ "action": "get", "id": "worktree:[name]" }` — parse the `repos` field from the returned value.
 
 For current repo:
 ```bash
@@ -292,9 +274,8 @@ git -C [linked-path] branch -d [branch-name]
 ```
 
 6. Update brain.db:
-```bash
-sqlite3 .shipfast/brain.db "UPDATE context SET value = replace(value, '\"active\"', '\"complete\"'), updated_at = strftime('%s', 'now') WHERE id = 'worktree:[name]';"
-```
+
+   Use the `brain_context` MCP tool with: `{ "action": "set", "id": "worktree:[name]", "scope": "worktree", "key": "[name]", "value": "<previous value with 'active' replaced by 'complete'>" }`
 
 7. Report: `Worktree [name] merged into $DEFAULT and removed.`
 

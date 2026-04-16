@@ -218,9 +218,8 @@ Launch ONE Builder agent with ALL tasks batched and `model: models.builder` from
 ### Complex workflow (per-task agents, fresh context each):
 
 **Check brain.db first** — if `/sf-plan` was run, tasks already exist:
-```bash
-sqlite3 -json .shipfast/brain.db "SELECT id, description, plan_text FROM tasks WHERE status = 'pending' ORDER BY created_at;" 2>/dev/null
-```
+
+Use the `brain_tasks` MCP tool with: `{ "action": "list", "status": "pending" }`
 
 If tasks found in brain.db, execute them. If not, run inline planning first.
 
@@ -244,15 +243,16 @@ For each pending task in brain.db:
 2. Builder gets fresh context — no accumulated garbage from previous tasks
 3. Builder executes: read → grep consumers → implement → build → verify → commit
 4. After Builder completes, update task status and record model outcome:
-   ```bash
-   sqlite3 .shipfast/brain.db "UPDATE tasks SET status='passed', commit_sha='[sha]' WHERE id='[id]';"
-   sqlite3 .shipfast/brain.db "INSERT INTO model_performance (agent, model, domain, task_id, outcome) VALUES ('builder', '[model used]', '[domain]', '[id]', 'success');"
-   ```
+
+   Use the `brain_tasks` MCP tool with: `{ "action": "update", "id": "[id]", "status": "passed", "commit_sha": "[sha]" }`
+
+   Use the `brain_model_outcome` MCP tool with: `{ "agent": "builder", "model": "[model used]", "domain": "[domain]", "task_id": "[id]", "outcome": "success" }`
+
 5. If Builder fails after 3 attempts:
-   ```bash
-   sqlite3 .shipfast/brain.db "UPDATE tasks SET status='failed', error='[error]' WHERE id='[id]';"
-   sqlite3 .shipfast/brain.db "INSERT INTO model_performance (agent, model, domain, task_id, outcome) VALUES ('builder', '[model used]', '[domain]', '[id]', 'failure');"
-   ```
+
+   Use the `brain_tasks` MCP tool with: `{ "action": "update", "id": "[id]", "status": "failed", "error": "[error]" }`
+
+   Use the `brain_model_outcome` MCP tool with: `{ "agent": "builder", "model": "[model used]", "domain": "[domain]", "task_id": "[id]", "outcome": "failure" }`
 6. Continue to next task regardless
 
 **Wave grouping + parallel execution:**
@@ -329,9 +329,8 @@ Runs automatically — no flag needed. Skipped when on the default branch.
 1. Get current branch and default branch:
 ```bash
 CURRENT=$(git branch --show-current)
-DEFAULT=$(sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key='default_branch';" 2>/dev/null)
-[ -z "$DEFAULT" ] && DEFAULT="main"
 ```
+Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — if empty, fall back to `"main"` as `$DEFAULT`.
 
 2. If `$CURRENT` ≠ `$DEFAULT`, run a compact migration audit:
    - `git diff $DEFAULT...$CURRENT --diff-filter=D --name-only` → deleted files
@@ -358,19 +357,16 @@ For full structured report, run `/sf-worktree check`.
 **Explicitly record decisions and learnings using these exact commands:**
 
 If you made any architectural decisions during this task, record each one:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO decisions (question, decision, reasoning, phase) VALUES ('[what was decided]', '[the choice]', '[why]', '[current task]');"
-```
+
+Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[what was decided]", "decision": "[the choice]", "reasoning": "[why]", "phase": "[current task]" }`
 
 If you encountered and fixed any errors, record the pattern:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO learnings (pattern, problem, solution, domain, source, confidence) VALUES ('[short pattern name]', '[what went wrong]', '[what fixed it]', '[domain]', 'auto', 0.5);"
-```
+
+Use the `brain_learnings` MCP tool with: `{ "action": "add", "pattern": "[short pattern name]", "problem": "[what went wrong]", "solution": "[what fixed it]", "domain": "[domain]", "source": "auto", "confidence": 0.5 }`
 
 If any improvement ideas, future features, or tech debt were surfaced during this task (including OUT_OF_SCOPE items), record them as seeds:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO seeds (idea, source_task, domain, priority) VALUES ('[idea]', '[current task]', '[domain]', 'someday');"
-```
+
+Use the `brain_seeds` MCP tool with: `{ "action": "add", "idea": "[idea]", "source_task": "[current task]", "domain": "[domain]", "priority": "someday" }`
 
 **These are not optional.** If decisions were made, errors were fixed, or ideas were surfaced, you MUST record them. This is how ShipFast gets smarter over time.
 

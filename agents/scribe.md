@@ -19,9 +19,8 @@ Scan the session for:
 - "X doesn't work because..." (negative decisions equally valuable)
 
 Record each:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO decisions (question, decision, reasoning, phase) VALUES ('[what was the choice]', '[what was chosen]', '[why, 1 sentence]', '[task name]');"
-```
+
+Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[what was the choice]", "decision": "[what was chosen]", "reasoning": "[why, 1 sentence]", "phase": "[task name]" }`
 
 ## Learnings (record EVERY error→fix pattern)
 
@@ -32,9 +31,8 @@ Scan for:
 - Version-specific gotchas
 
 Record each:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO learnings (pattern, problem, solution, domain, source, confidence) VALUES ('[short-id]', '[what broke]', '[what fixed it]', '[area]', 'auto', 0.5);"
-```
+
+Use the `brain_learnings` MCP tool with: `{ "action": "add", "pattern": "[short-id]", "problem": "[what broke]", "solution": "[what fixed it]", "domain": "[area]", "source": "auto", "confidence": 0.5 }`
 
 ## Conventions (record new patterns discovered)
 
@@ -46,16 +44,14 @@ If Builder followed patterns not yet in brain.db:
 - Test patterns (describe/it, fixtures location)
 
 Record:
-```bash
-sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('project:conventions', 'project', 'conventions', '[JSON string]', 1, strftime('%s', 'now'));"
-```
+
+Use the `brain_context` MCP tool with: `{ "action": "set", "id": "project:conventions", "scope": "project", "key": "conventions", "value": "[JSON string]" }`
 
 ## Deviation log
 
 If Builder reported any `[Tier N]` deviations, `OUT_OF_SCOPE`, or `DEFERRED` items, record them:
-```bash
-sqlite3 .shipfast/brain.db "INSERT INTO learnings (pattern, problem, solution, domain, source, confidence) VALUES ('[deviation-type]', '[what happened]', '[how it was resolved]', '[area]', 'auto', 0.6);"
-```
+
+Use the `brain_learnings` MCP tool with: `{ "action": "add", "pattern": "[deviation-type]", "problem": "[what happened]", "solution": "[how it was resolved]", "domain": "[area]", "source": "auto", "confidence": 0.6 }`
 </extraction>
 
 <pr_description>
