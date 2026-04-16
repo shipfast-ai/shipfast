@@ -41,8 +41,23 @@ function selectScoutModel(cwd, task) {
 }
 
 function selectArchitectModel(cwd, task) {
-  // Complex multi-area tasks need better reasoning
-  if (task.complexity === 'complex' && task.areas && task.areas.length > 2) {
+  // Complex multi-area tasks with no prior patterns → Opus
+  // Opus costs 25x but is used rarely; pays for itself in fewer revision cycles
+  if (task.complexity === 'complex' && task.areas && task.areas.length > 3) {
+    if (task.domain) {
+      const learnings = brain.findLearnings(cwd, task.domain, 3);
+      const highConfidence = learnings.filter(l => l.confidence > 0.8 && l.solution);
+      if (highConfidence.length === 0) {
+        return 'opus'; // uncharted territory + complex = worth the cost
+      }
+    } else {
+      return 'opus'; // no domain = no learnings = needs best reasoning
+    }
+    return 'sonnet';
+  }
+
+  // Complex but fewer areas → Sonnet
+  if (task.complexity === 'complex') {
     return 'sonnet';
   }
 
@@ -55,6 +70,18 @@ function selectArchitectModel(cwd, task) {
 }
 
 function selectBuilderModel(cwd, task) {
+  // Check feedback loop: if haiku failed recently for this domain, upgrade
+  if (task.domain) {
+    const stats = getModelSuccessRate(cwd, 'builder', task.domain);
+    if (stats.haikuRate !== null && stats.haikuRate < 0.6) {
+      return 'sonnet'; // haiku struggling in this domain → upgrade
+    }
+    if (stats.sonnetRate !== null && stats.sonnetRate > 0.9 && stats.sonnetTotal >= 3) {
+      // Sonnet consistently succeeds here → try haiku next time to save cost
+      return 'haiku';
+    }
+  }
+
   // Key insight: if we've solved similar problems before, Haiku can replicate
   if (task.domain) {
     const learnings = brain.findLearnings(cwd, task.domain, 3);
@@ -76,6 +103,36 @@ function selectBuilderModel(cwd, task) {
 
   // Default: Sonnet for quality
   return 'sonnet';
+}
+
+/**
+ * Get model success rate for an agent+domain combo from the feedback table.
+ * Returns { haikuRate, sonnetRate, haikuTotal, sonnetTotal } (null if no data).
+ */
+function getModelSuccessRate(cwd, agent, domain) {
+  const rows = brain.query(cwd,
+    `SELECT model, outcome, COUNT(*) as c FROM model_performance
+     WHERE agent = '${brain.esc(agent)}' AND domain = '${brain.esc(domain)}'
+     GROUP BY model, outcome`
+  );
+
+  const stats = { haikuRate: null, sonnetRate: null, haikuTotal: 0, sonnetTotal: 0 };
+  const haikuSuccess = rows.find(r => r.model === 'haiku' && r.outcome === 'success');
+  const haikuFailure = rows.find(r => r.model === 'haiku' && r.outcome === 'failure');
+  const sonnetSuccess = rows.find(r => r.model === 'sonnet' && r.outcome === 'success');
+  const sonnetFailure = rows.find(r => r.model === 'sonnet' && r.outcome === 'failure');
+
+  const hS = haikuSuccess ? haikuSuccess.c : 0;
+  const hF = haikuFailure ? haikuFailure.c : 0;
+  const sS = sonnetSuccess ? sonnetSuccess.c : 0;
+  const sF = sonnetFailure ? sonnetFailure.c : 0;
+
+  stats.haikuTotal = hS + hF;
+  stats.sonnetTotal = sS + sF;
+  if (stats.haikuTotal > 0) stats.haikuRate = hS / stats.haikuTotal;
+  if (stats.sonnetTotal > 0) stats.sonnetRate = sS / stats.sonnetTotal;
+
+  return stats;
 }
 
 function selectCriticModel(cwd, task) {

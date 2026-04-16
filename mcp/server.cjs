@@ -103,7 +103,8 @@ const TOOLS = {
         "UNION ALL SELECT 'learnings', COUNT(*) FROM learnings " +
         "UNION ALL SELECT 'tasks', COUNT(*) FROM tasks " +
         "UNION ALL SELECT 'checkpoints', COUNT(*) FROM checkpoints " +
-        "UNION ALL SELECT 'hot_files', COUNT(*) FROM hot_files"
+        "UNION ALL SELECT 'hot_files', COUNT(*) FROM hot_files " +
+        "UNION ALL SELECT 'seeds', COUNT(*) FROM seeds WHERE status = 'open'"
       );
       const stats = {};
       rows.forEach(r => stats[r.metric] = r.count);
@@ -242,6 +243,46 @@ const TOOLS = {
       const checkpoints = query("SELECT id, description FROM checkpoints ORDER BY created_at DESC LIMIT 5");
 
       return { stats, activeTasks: active, recentTasks: recent, checkpoints };
+    }
+  },
+
+  brain_seeds: {
+    description: 'List, add, promote, or dismiss forward ideas (seeds). Seeds capture improvement ideas surfaced during work for future milestones.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'list, add, promote, or dismiss', enum: ['list', 'add', 'promote', 'dismiss'] },
+        idea: { type: 'string', description: 'The idea text (required for add)' },
+        source_task: { type: 'string', description: 'Which task surfaced this idea (optional)' },
+        domain: { type: 'string', description: 'Domain: frontend, backend, database, auth, etc. (optional)' },
+        priority: { type: 'string', description: 'someday, next, or urgent (optional, default: someday)', enum: ['someday', 'next', 'urgent'] },
+        seed_id: { type: 'number', description: 'Seed ID (required for promote/dismiss)' },
+        task_id: { type: 'string', description: 'Task ID to promote seed to (required for promote)' }
+      },
+      required: ['action']
+    },
+    handler({ action, idea, source_task, domain, priority, seed_id, task_id }) {
+      if (action === 'add') {
+        if (!idea) return { error: 'idea is required' };
+        const ok = run(
+          `INSERT INTO seeds (idea, source_task, domain, priority) ` +
+          `VALUES ('${esc(idea)}', '${esc(source_task || '')}', '${esc(domain || '')}', '${esc(priority || 'someday')}')`
+        );
+        return ok ? { status: 'recorded', idea, domain, priority: priority || 'someday' } : { error: 'failed to insert' };
+      }
+      if (action === 'promote') {
+        if (!seed_id || !task_id) return { error: 'seed_id and task_id are required' };
+        const ok = run(`UPDATE seeds SET status = 'promoted', promoted_to = '${esc(task_id)}' WHERE id = ${parseInt(seed_id)}`);
+        return ok ? { status: 'promoted', seed_id, task_id } : { error: 'failed to update' };
+      }
+      if (action === 'dismiss') {
+        if (!seed_id) return { error: 'seed_id is required' };
+        const ok = run(`UPDATE seeds SET status = 'dismissed' WHERE id = ${parseInt(seed_id)}`);
+        return ok ? { status: 'dismissed', seed_id } : { error: 'failed to update' };
+      }
+      // list
+      const filter = domain ? `AND domain = '${esc(domain)}'` : '';
+      return query(`SELECT id, idea, source_task, domain, priority, status, created_at FROM seeds WHERE status = 'open' ${filter} ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'next' THEN 1 ELSE 2 END, created_at DESC LIMIT 30`);
     }
   },
 

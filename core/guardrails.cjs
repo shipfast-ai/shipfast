@@ -255,9 +255,12 @@ function formatReport(results, outputLevel) {
  * Apply all guardrails to a pipeline.
  * Returns the optimized pipeline with all adjustments.
  */
-function applyGuardrails(cwd, sessionId, task, basePipeline) {
+/**
+ * @param {object} [flags] - Composable flags from parseFlags() (--cheap, --quality, etc.)
+ */
+function applyGuardrails(cwd, sessionId, task, basePipeline, flags = {}) {
   // 1. Skip logic (brain.db knowledge)
-  let pipeline = skipLogic.getAgentPipeline(cwd, task);
+  let pipeline = skipLogic.getAgentPipeline(cwd, task, flags);
 
   // 2. Learning acceleration
   const accel = accelerateFromLearnings(cwd, task, pipeline);
@@ -273,10 +276,25 @@ function applyGuardrails(cwd, sessionId, task, basePipeline) {
     models[agent] = budgetAdj.models[agent] || modelSelector.selectModel(cwd, agent, task);
   }
 
-  // 5. Output level
+  // 5. Flag overrides (--cheap / --quality take precedence)
+  if (flags.cheap) {
+    for (const agent of pipeline) {
+      models[agent] = 'haiku';
+    }
+  } else if (flags.quality) {
+    for (const agent of pipeline) {
+      if (agent === 'architect') {
+        models[agent] = task.complexity === 'complex' ? 'opus' : 'sonnet';
+      } else if (agent === 'builder') {
+        models[agent] = 'sonnet';
+      }
+    }
+  }
+
+  // 6. Output level
   const outputLevel = getOutputLevel(task.complexity);
 
-  // 6. Predictive context
+  // 7. Predictive context
   const predictedContext = buildPredictiveContext(cwd, task);
 
   return {

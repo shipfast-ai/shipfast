@@ -59,6 +59,11 @@ Track every deviation: `[Tier N] Fixed: [what] in [file]`
 Only fix issues DIRECTLY caused by your current task.
 Pre-existing problems in other files → do NOT fix. Output:
 `OUT_OF_SCOPE: [file:line] [issue]`
+
+For each out-of-scope issue, also record it as a seed for future work:
+```bash
+sqlite3 .shipfast/brain.db "INSERT INTO seeds (idea, source_task, domain, priority) VALUES ('[improvement idea]', '[current task id]', '[domain]', 'someday');"
+```
 </deviation_tiers>
 
 <patterns>
@@ -149,17 +154,31 @@ Check if your changes introduced:
 - New external service calls
 - Schema changes at trust boundaries
 
+- Schema/model changes without corresponding migrations
+
 If found: `THREAT_FLAG: [type] in [file] — [description]`
+If schema drift: `DRIFT_WARNING: [model file] changed without migration. Run: [migrate command]`
 </threat_scan>
 
 <tdd_mode>
-## TDD (when --tdd flag set)
+## TDD (when --tdd flag or MODE: TDD is in context)
 
-RED: Write failing test → commit `test(scope): ...`
-GREEN: Minimal code to pass → commit `feat(scope): ...`
-REFACTOR: Optional cleanup → commit `refactor(scope): ...`
+**THIS OVERRIDES THE NORMAL EXECUTION ORDER.** When TDD mode is active, follow this sequence strictly:
 
-Test passes before implementation? STOP — test is wrong. Investigate.
+**Step 1: READ** — Understand what to test. Read relevant files and existing test patterns.
+**Step 2: WRITE TEST** — Write a failing test. Test ONLY, no implementation code.
+**Step 3: RUN TEST** — Run the test. It MUST fail. If it passes, STOP — the test is wrong. Investigate.
+**Step 4: COMMIT RED** — `git add <test files only>` → `test(scope): red - [description]`
+**Step 5: IMPLEMENT** — Write the minimal code to make the test pass. Implementation files only.
+**Step 6: RUN TEST** — Run the test. It MUST pass.
+**Step 7: COMMIT GREEN** — `git add <implementation files only>` → `feat(scope): green - [description]`
+**Step 8: REFACTOR** (optional) — Clean up. Commit as `refactor(scope): [description]`
+
+**NON-NEGOTIABLE RULES:**
+- You MUST NOT write implementation code before committing a failing test
+- Test commits MUST contain only test/spec files
+- Feat commits MUST contain only implementation files (no test files)
+- If you cannot write a meaningful failing test, report: `TDD_BLOCKED: [reason]`
 </tdd_mode>
 
 <context>

@@ -195,6 +195,111 @@ function buildDiscussionPrompt(input, ambiguities, brainContext) {
   return parts.join('\n');
 }
 
+/**
+ * Auto-resolve ambiguities using codebase patterns from brain.db.
+ * Used by --assume flag to skip interactive questioning.
+ * Returns array of { type, decision, confidence, reasoning }.
+ * Falls back to asking the user if confidence < 0.5.
+ */
+function autoResolveAmbiguity(cwd, ambiguities, taskInput) {
+  const resolved = [];
+
+  for (const a of ambiguities) {
+    let decision = null;
+    let confidence = 0;
+    let reasoning = '';
+
+    switch (a.type) {
+      case 'WHERE': {
+        // Search brain.db nodes for files matching task keywords
+        const keywords = taskInput.split(/\s+/).filter(w => w.length > 3);
+        for (const kw of keywords) {
+          const matches = brain.query(cwd,
+            `SELECT file_path, name FROM nodes WHERE kind = 'file' AND (name LIKE '%${brain.esc(kw)}%' OR file_path LIKE '%${brain.esc(kw)}%') LIMIT 5`
+          );
+          if (matches.length > 0) {
+            decision = matches.map(m => m.file_path).join(', ');
+            confidence = matches.length === 1 ? 0.8 : 0.6;
+            reasoning = 'Matched ' + matches.length + ' file(s) by keyword "' + kw + '"';
+            break;
+          }
+        }
+        if (!decision) {
+          confidence = 0.2;
+          reasoning = 'No matching files found in brain.db';
+        }
+        break;
+      }
+
+      case 'HOW': {
+        // Reuse past HOW decisions in the same domain
+        const pastDecisions = brain.getDecisions(cwd);
+        const howDecision = pastDecisions.find(d => d.tags && d.tags.includes('HOW'));
+        if (howDecision) {
+          decision = howDecision.decision;
+          confidence = 0.7;
+          reasoning = 'Reusing previous HOW decision: ' + howDecision.question;
+        } else {
+          // Check learnings for the domain
+          const words = taskInput.toLowerCase().split(/\s+/);
+          const domains = ['auth', 'database', 'ui', 'api', 'frontend', 'backend', 'cache', 'search', 'payment'];
+          const domain = domains.find(d => words.includes(d));
+          if (domain) {
+            const learnings = brain.findLearnings(cwd, domain, 1);
+            if (learnings.length > 0) {
+              decision = 'Follow existing pattern: ' + learnings[0].pattern;
+              confidence = learnings[0].confidence;
+              reasoning = 'Based on learning with confidence ' + learnings[0].confidence;
+            }
+          }
+          if (!decision) { confidence = 0.3; reasoning = 'No prior decisions or learnings found'; }
+        }
+        break;
+      }
+
+      case 'WHAT': {
+        // Use task description as-is for short inputs
+        decision = 'Inferred from task description';
+        confidence = 0.6;
+        reasoning = 'Task description used as behavior spec';
+        break;
+      }
+
+      case 'RISK': {
+        // Auto-confirm in dev environment
+        const isDevEnv = require('fs').existsSync(require('path').join(cwd, '.env.local'))
+          || require('fs').existsSync(require('path').join(cwd, '.env.development'));
+        if (isDevEnv) {
+          decision = 'Confirmed — development environment detected';
+          confidence = 0.7;
+          reasoning = '.env.local or .env.development found';
+        } else {
+          confidence = 0.3;
+          reasoning = 'No dev environment indicators — needs user confirmation';
+        }
+        break;
+      }
+
+      case 'SCOPE': {
+        decision = 'Tackle all at once';
+        confidence = 0.5;
+        reasoning = 'Default: single pass unless complexity warrants phasing';
+        break;
+      }
+    }
+
+    resolved.push({
+      type: a.type,
+      question: a.question,
+      decision: decision || 'Could not auto-resolve',
+      confidence,
+      reasoning
+    });
+  }
+
+  return resolved;
+}
+
 module.exports = {
   detectAmbiguity,
   ambiguityScore,
@@ -202,5 +307,6 @@ module.exports = {
   lockDecision,
   shouldDiscuss,
   buildDiscussionPrompt,
+  autoResolveAmbiguity,
   AMBIGUITY_RULES
 };

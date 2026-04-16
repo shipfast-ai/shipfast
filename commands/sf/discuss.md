@@ -89,7 +89,32 @@ Resolved [N] ambiguities:
 Ready for planning. Run /sf-do to continue.
 ```
 
-If `--auto` flag was passed, auto-select recommended defaults instead of asking.
+## Assumptions Mode (when `--assume` flag is set)
+
+Instead of asking questions, auto-resolve ambiguities using codebase patterns:
+
+1. For each detected ambiguity, query brain.db for matching patterns:
+   - **WHERE**: Search nodes table for files matching task keywords
+   - **HOW**: Reuse past HOW decisions or domain learnings
+   - **WHAT**: Infer from task description
+   - **RISK**: Auto-confirm if `.env.local` or `.env.development` exists
+   - **SCOPE**: Default to "tackle all at once" for medium complexity
+
+2. Each auto-resolution has a confidence score (0-1):
+   - Confidence >= 0.5: Accept and lock as decision
+   - Confidence < 0.5: Fall back to asking the user
+
+3. Present assumptions to user before proceeding:
+```
+Assuming (based on codebase patterns):
+  WHERE: src/auth/login.ts, src/auth/session.ts (confidence: 0.8)
+  HOW: Follow existing pattern: jwt-auth (confidence: 0.7)
+  RISK: Confirmed — development environment detected (confidence: 0.7)
+
+Say 'no' to override any of these, or press Enter to continue.
+```
+
+4. Lock accepted assumptions as decisions in brain.db.
 
 </process>
 

@@ -400,9 +400,14 @@ function verifyWithAutoFix(cwd, criteria, executeFixFn) {
 /**
  * Verify TDD commit sequence: test(...) → feat(...) → optional refactor(...)
  */
+/**
+ * Verify TDD commit sequence: test(...) → feat(...) → optional refactor(...)
+ * Enhanced: also checks that test commits contain only test files and feat commits
+ * contain only implementation files.
+ */
 function verifyTddSequence(cwd, numCommits) {
   try {
-    const log = safeRun('git', ['log', '--oneline', '-' + (numCommits || 10)], {
+    const log = safeExec('git', ['log', '--oneline', '-' + (numCommits || 10)], {
       cwd, encoding: 'utf8'
     }).trim().split('\n');
 
@@ -418,7 +423,40 @@ function verifyTddSequence(cwd, numCommits) {
 
     // test commit should come BEFORE feat commit (higher index = older in git log)
     if (featCommit && testIdx < featIdx) {
-      return { passed: true, detail: 'TDD sequence valid: test → feat' };
+      // Verify test commit contains only test files
+      const violations = [];
+      const testSha = testCommit.split(' ')[0];
+      const featSha = featCommit.split(' ')[0];
+
+      try {
+        const testFiles = safeExec('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', testSha], {
+          cwd, encoding: 'utf8'
+        }).trim().split('\n').filter(Boolean);
+
+        const nonTestFiles = testFiles.filter(f =>
+          !f.includes('test') && !f.includes('spec') && !f.includes('__tests__')
+        );
+        if (nonTestFiles.length > 0) {
+          violations.push('RED commit contains non-test files: ' + nonTestFiles.join(', '));
+        }
+
+        const featFiles = safeExec('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', featSha], {
+          cwd, encoding: 'utf8'
+        }).trim().split('\n').filter(Boolean);
+
+        const testInFeat = featFiles.filter(f =>
+          f.includes('test') || f.includes('spec') || f.includes('__tests__')
+        );
+        if (testInFeat.length > 0) {
+          violations.push('GREEN commit contains test files: ' + testInFeat.join(', '));
+        }
+      } catch { /* git diff-tree may fail for initial commits */ }
+
+      if (violations.length > 0) {
+        return { passed: false, detail: 'TDD sequence valid but file separation violated:\n' + violations.join('\n') };
+      }
+
+      return { passed: true, detail: 'TDD sequence valid: test → feat (file separation OK)' };
     }
 
     if (!featCommit) {
@@ -431,9 +469,94 @@ function verifyTddSequence(cwd, numCommits) {
   }
 }
 
+// ============================================================
+// Schema Drift Detection
+// ============================================================
+
+/**
+ * ORM/schema file patterns and their corresponding migration directories.
+ * Detects when model files change without a corresponding migration.
+ */
+const SCHEMA_PATTERNS = [
+  // Prisma
+  { model: /\.prisma$/, migration: /prisma\/migrations\//, name: 'Prisma', migrateCmd: 'npx prisma migrate dev' },
+  // Drizzle
+  { model: /pgTable|sqliteTable|mysqlTable/, migration: /drizzle\/|migrations\/\d/, name: 'Drizzle', migrateCmd: 'npx drizzle-kit generate' },
+  // TypeORM
+  { model: /@Entity|@Column|@ManyToOne|@OneToMany/, migration: /migrations\/\d/, name: 'TypeORM', migrateCmd: 'npx typeorm migration:generate' },
+  // Django
+  { model: /models\.py$/, migration: /\/migrations\/\d/, name: 'Django', migrateCmd: 'python manage.py makemigrations' },
+  // Rails
+  { model: /app\/models\//, migration: /db\/migrate\//, name: 'Rails', migrateCmd: 'rails generate migration' },
+  // Knex
+  { model: /models\/.*\.(js|ts)$/, migration: /migrations\/\d/, name: 'Knex', migrateCmd: 'npx knex migrate:make' },
+];
+
+/**
+ * Detect schema drift: model/schema files changed without corresponding migrations.
+ * Returns { hasDrift, modelChanges, migrationChanges, ormType, migrateCmd }
+ */
+function detectSchemaDrift(cwd, numCommits) {
+  let changedFiles;
+  try {
+    changedFiles = safeExec('git', ['diff', '--name-only', 'HEAD~' + (numCommits || 5)], {
+      cwd, encoding: 'utf8'
+    }).trim().split('\n').filter(Boolean);
+  } catch {
+    return { hasDrift: false, detail: 'Could not read git diff' };
+  }
+
+  if (changedFiles.length === 0) {
+    return { hasDrift: false, detail: 'No changed files' };
+  }
+
+  // Check file contents for ORM patterns (for content-based detection like Drizzle/TypeORM)
+  function fileMatchesContentPattern(filePath, pattern) {
+    if (pattern.source.includes('/') || pattern.source.endsWith('$')) {
+      // Path-based pattern
+      return pattern.test(filePath);
+    }
+    // Content-based pattern — read the file
+    const fullPath = path.join(cwd, filePath);
+    if (!fs.existsSync(fullPath)) return false;
+    try {
+      const content = fs.readFileSync(fullPath, 'utf8').slice(0, 5000);
+      return pattern.test(content);
+    } catch { return false; }
+  }
+
+  for (const schema of SCHEMA_PATTERNS) {
+    const modelChanges = changedFiles.filter(f => {
+      if (schema.model.source.includes('/') || schema.model.source.endsWith('$')) {
+        return schema.model.test(f);
+      }
+      return fileMatchesContentPattern(f, schema.model);
+    });
+
+    if (modelChanges.length === 0) continue;
+
+    const migrationChanges = changedFiles.filter(f => schema.migration.test(f));
+
+    if (migrationChanges.length === 0) {
+      return {
+        hasDrift: true,
+        ormType: schema.name,
+        modelChanges,
+        migrationChanges: [],
+        migrateCmd: schema.migrateCmd,
+        detail: schema.name + ' model files changed without migration: ' + modelChanges.join(', ')
+          + '. Run: ' + schema.migrateCmd
+      };
+    }
+  }
+
+  return { hasDrift: false, detail: 'No schema drift detected' };
+}
+
 module.exports = {
   extractDoneCriteria, runVerification, scoreResults, recordVerification, formatResults,
   verifyBuild, verifyNoStubs, verifyNoStubsDeep, detectBuildCommand,
   verifyArtifact3Level, verifyDataFlow,
-  generateFixTasks, verifyWithAutoFix, verifyTddSequence
+  generateFixTasks, verifyWithAutoFix, verifyTddSequence,
+  detectSchemaDrift
 };

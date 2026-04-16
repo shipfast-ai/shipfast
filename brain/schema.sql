@@ -223,6 +223,41 @@ CREATE INDEX IF NOT EXISTS idx_req_phase ON requirements(phase);
 CREATE INDEX IF NOT EXISTS idx_req_status ON requirements(status);
 
 -- ============================================================
+-- MODEL PERFORMANCE (feedback loop for smart model selection)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS model_performance (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent       TEXT NOT NULL,              -- scout | architect | builder | critic | scribe
+  model       TEXT NOT NULL,              -- haiku | sonnet | opus
+  domain      TEXT,                       -- auth, database, ui, etc.
+  task_id     TEXT,                       -- which task this was for
+  outcome     TEXT NOT NULL,              -- success | failure | retry
+  created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_perf_agent ON model_performance(agent);
+CREATE INDEX IF NOT EXISTS idx_model_perf_domain ON model_performance(domain);
+
+-- ============================================================
+-- SEEDS (forward ideas captured during work)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS seeds (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  idea        TEXT NOT NULL,              -- the improvement, feature, or tech debt idea
+  source_task TEXT,                       -- which task surfaced this idea
+  domain      TEXT,                       -- relevant domain (auth, ui, database, etc.)
+  priority    TEXT DEFAULT 'someday',     -- someday | next | urgent
+  status      TEXT DEFAULT 'open',        -- open | promoted | dismissed
+  promoted_to TEXT,                       -- task_id if promoted to a real task
+  created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_seeds_status ON seeds(status);
+CREATE INDEX IF NOT EXISTS idx_seeds_domain ON seeds(domain);
+
+-- ============================================================
 -- MIGRATIONS TRACKING
 -- ============================================================
 
@@ -233,3 +268,5 @@ CREATE TABLE IF NOT EXISTS _migrations (
 );
 
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (1, 'initial_schema');
+INSERT OR IGNORE INTO _migrations (version, name) VALUES (2, 'add_seeds_table');
+INSERT OR IGNORE INTO _migrations (version, name) VALUES (3, 'add_model_performance_table');

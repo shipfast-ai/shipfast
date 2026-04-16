@@ -323,6 +323,41 @@ function buildAgentContext(cwd, { agent, taskDescription, affectedFiles, phase, 
 }
 
 // ============================================================
+// Model Performance (feedback loop)
+// ============================================================
+
+function recordModelOutcome(cwd, { agent, model, domain, taskId, outcome }) {
+  run(cwd, `INSERT INTO model_performance (agent, model, domain, task_id, outcome)
+    VALUES ('${esc(agent)}', '${esc(model)}', '${esc(domain || '')}', '${esc(taskId || '')}', '${esc(outcome)}')`);
+}
+
+// ============================================================
+// Seeds (forward ideas captured during work)
+// ============================================================
+
+function addSeed(cwd, { idea, sourceTask, domain, priority }) {
+  run(cwd, `INSERT INTO seeds (idea, source_task, domain, priority)
+    VALUES ('${esc(idea)}', '${esc(sourceTask || '')}', '${esc(domain || '')}', '${esc(priority || 'someday')}')`);
+}
+
+function getSeeds(cwd, opts = {}) {
+  const conditions = [];
+  if (opts.status) conditions.push(`status = '${esc(opts.status)}'`);
+  if (opts.domain) conditions.push(`domain = '${esc(opts.domain)}'`);
+  if (opts.priority) conditions.push(`priority = '${esc(opts.priority)}'`);
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  return query(cwd, `SELECT * FROM seeds ${where} ORDER BY created_at DESC LIMIT 30`);
+}
+
+function promoteSeed(cwd, seedId, taskId) {
+  run(cwd, `UPDATE seeds SET status = 'promoted', promoted_to = '${esc(taskId)}' WHERE id = ${parseInt(seedId)}`);
+}
+
+function dismissSeed(cwd, seedId) {
+  run(cwd, `UPDATE seeds SET status = 'dismissed' WHERE id = ${parseInt(seedId)}`);
+}
+
+// ============================================================
 // Utils
 // ============================================================
 
@@ -366,6 +401,13 @@ module.exports = {
   setConfig,
   buildAgentContext,
   esc,
+  // Model Performance
+  recordModelOutcome,
+  // Seeds
+  addSeed,
+  getSeeds,
+  promoteSeed,
+  dismissSeed,
   // Requirements
   addRequirement,
   getRequirements,

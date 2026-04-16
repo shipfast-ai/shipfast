@@ -71,6 +71,29 @@ Check each for:
 - debugger statements
 - Commented-out code blocks
 
+## Step 5.5: Schema drift detection
+
+Check if ORM model/schema files were changed without a corresponding migration:
+
+1. Get changed files: `git diff --name-only HEAD~5`
+2. Detect ORM type by file pattern:
+   - Prisma: `*.prisma` files
+   - Drizzle: files containing `pgTable`/`sqliteTable`/`mysqlTable`
+   - TypeORM: files containing `@Entity`/`@Column` decorators
+   - Django: `models.py` files
+   - Rails: `app/models/` files
+   - Knex: `models/*.ts` or `models/*.js`
+3. Check if migration files also changed in the same diff
+4. If model changed without migration → **DRIFT WARNING** (not FAIL)
+
+```
+Schema: [ORM type] model changed: [files]
+Migration: MISSING
+Suggest: Run [migration command] to generate migration
+```
+
+This check can be suppressed by setting `schema_drift_check = false` in brain.db config.
+
 ## Step 6: Build verification
 
 ```bash

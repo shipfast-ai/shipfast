@@ -49,6 +49,14 @@ WHERE confidence > 0.3 ORDER BY confidence DESC LIMIT 10
 SELECT file_path, change_count FROM hot_files ORDER BY change_count DESC LIMIT 15
 ```
 
+### "seeds" or "ideas" or "future work"
+```sql
+SELECT id, idea, source_task, domain, priority, status FROM seeds
+WHERE status = 'open'
+ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'next' THEN 1 ELSE 2 END, created_at DESC
+LIMIT 20
+```
+
 ### "stats"
 Show counts: nodes, edges, decisions, learnings, tasks, checkpoints
 

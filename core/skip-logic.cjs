@@ -10,8 +10,12 @@ const brain = require('../brain/index.cjs');
 /**
  * Should we skip Scout (research agent)?
  * Skip if: all files are indexed AND we have relevant learnings
+ * @param {object} [flags] - Composable flags from /sf-do (--research, --discuss, etc.)
  */
-function shouldSkipScout(cwd, task) {
+function shouldSkipScout(cwd, task, flags = {}) {
+  // --research flag forces Scout to run
+  if (flags.research) return false;
+
   // Always need Scout for complex tasks
   if (task.complexity === 'complex') return false;
 
@@ -41,8 +45,12 @@ function shouldSkipScout(cwd, task) {
 /**
  * Should we skip Architect (planning agent)?
  * Skip if: single-file change OR known template with high confidence
+ * @param {object} [flags] - Composable flags from /sf-do
  */
-function shouldSkipArchitect(cwd, task) {
+function shouldSkipArchitect(cwd, task, flags = {}) {
+  // --no-plan flag skips Architect
+  if (flags.noPlan) return true;
+
   // Never skip for complex tasks
   if (task.complexity === 'complex') return false;
 
@@ -61,8 +69,11 @@ function shouldSkipArchitect(cwd, task) {
 /**
  * Should we skip Critic (review agent)?
  * Skip if: trivial change OR docs-only OR test-only
+ * @param {object} [flags] - Composable flags from /sf-do
  */
-function shouldSkipCritic(cwd, task) {
+function shouldSkipCritic(cwd, task, flags = {}) {
+  // --verify flag forces Critic to run
+  if (flags.verify) return false;
   // Always review complex tasks
   if (task.complexity === 'complex') return false;
 
@@ -90,24 +101,54 @@ function shouldSkipScribe(cwd, task) {
 }
 
 /**
+ * Parse composable flags from user input.
+ * Returns { flags, task } where task is the input with flags stripped.
+ */
+function parseFlags(input) {
+  const flags = {};
+  const flagMap = {
+    '--discuss': 'discuss',
+    '--research': 'research',
+    '--verify': 'verify',
+    '--tdd': 'tdd',
+    '--no-plan': 'noPlan',
+    '--cheap': 'cheap',
+    '--quality': 'quality'
+  };
+
+  let task = input;
+  for (const [flag, key] of Object.entries(flagMap)) {
+    if (task.includes(flag)) {
+      flags[key] = true;
+      task = task.replace(flag, '').trim();
+    }
+  }
+
+  // Clean up extra whitespace
+  task = task.replace(/\s+/g, ' ').trim();
+  return { flags, task };
+}
+
+/**
  * Get the optimized agent pipeline for a task.
  * Returns only the agents that should run.
+ * @param {object} [flags] - Composable flags from parseFlags()
  */
-function getAgentPipeline(cwd, task) {
+function getAgentPipeline(cwd, task, flags = {}) {
   const pipeline = [];
 
-  if (!shouldSkipScout(cwd, task)) {
+  if (!shouldSkipScout(cwd, task, flags)) {
     pipeline.push('scout');
   }
 
-  if (!shouldSkipArchitect(cwd, task)) {
+  if (!shouldSkipArchitect(cwd, task, flags)) {
     pipeline.push('architect');
   }
 
   // Builder always runs
   pipeline.push('builder');
 
-  if (!shouldSkipCritic(cwd, task)) {
+  if (!shouldSkipCritic(cwd, task, flags)) {
     pipeline.push('critic');
   }
 
@@ -142,6 +183,7 @@ function estimateSavings(fullPipeline, optimizedPipeline) {
 }
 
 module.exports = {
+  parseFlags,
   shouldSkipScout,
   shouldSkipArchitect,
   shouldSkipCritic,
