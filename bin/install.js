@@ -138,7 +138,7 @@ function installFor(key, runtime) {
   for (const f of ['schema.sql', 'index.cjs', 'indexer.cjs'])
     copy('brain/' + f, path.join(brainDir, f));
 
-  for (const f of ['autopilot.cjs','budget.cjs','checkpoint.cjs','learning.cjs','ambiguity.cjs','context-builder.cjs','conversation.cjs','executor.cjs','git-intel.cjs','guardrails.cjs','model-selector.cjs','retry.cjs','session.cjs','skip-logic.cjs','templates.cjs','verify.cjs'])
+  for (const f of ['architecture.cjs','autopilot.cjs','budget.cjs','checkpoint.cjs','constants.cjs','learning.cjs','ambiguity.cjs','context-builder.cjs','conversation.cjs','executor.cjs','git-intel.cjs','guardrails.cjs','model-selector.cjs','retry.cjs','session.cjs','skip-logic.cjs','templates.cjs','verify.cjs'])
     copy('core/' + f, path.join(coreDir, f));
 
   // Copy agents
