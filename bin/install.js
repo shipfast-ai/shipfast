@@ -801,7 +801,7 @@ function writeMcpConfig(dir) {
 function writeInstruction(filePath) {
   const marker = '<!-- ShipFast -->';
   const close = '<!-- /ShipFast -->';
-  const block = `${marker}\n## ShipFast\n- \`/sf-do <task>\` — Describe what you want.\n- \`/sf-help\` — Show all commands.\n- Brain: \`.shipfast/brain.db\`\n${close}`;
+  const block = `${marker}\n## ShipFast\nThis repo uses ShipFast. Brain: .shipfast/brain.db\n\nFor any task: \`/sf-do <task>\` (recommended — full pipeline with fresh context per task).\nFor quick edits: check brain_decisions and brain_learnings MCP tools before changes.\n\nContext: ShipFast saves progress to brain.db automatically.\nIf context runs low, run \`/sf-resume\` in a new session — all state persists.\nRun \`/sf-help\` for all 20 commands.\n${close}`;
 
   let content = '';
   if (fs.existsSync(filePath)) {

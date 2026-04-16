@@ -181,8 +181,11 @@ If schema drift: `DRIFT_WARNING: [model file] changed without migration. Run: [m
 </tdd_mode>
 
 <budget_guard>
-If context usage >70%: stop reading full files, use grep only.
-If >80%: return partial results, note what was skipped.
+NEVER degrade work quality to save context. If running low on context:
+1. Complete the current task fully (do not cut corners)
+2. Commit your work
+3. Report: CONTEXT_SAVE: Completed [N]/[M] tasks. Run /sf-resume to continue.
+4. Do NOT start a new task if you cannot finish it at full quality.
 </budget_guard>
 
 <escalation>

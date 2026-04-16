@@ -212,6 +212,7 @@ Execute inline. No planning, no Scout, no Architect, no Critic.
 **Trivial done**: files changed | build passes | committed | no stubs
 
 ### Medium workflow (1 Builder agent):
+If task count > 5: auto-upgrade to complex workflow (per-task fresh agents) to prevent context filling.
 Launch ONE Builder agent with ALL tasks batched and `model: models.builder` from Step 1.5:
 - Agent gets: base prompt + brain context + all task descriptions
 - If `--tdd` flag is set, prepend to Builder context: `MODE: TDD (red→green→refactor). Write failing test FIRST. See <tdd_mode> in builder prompt.`
@@ -428,13 +429,23 @@ Run /sf-resume to continue in a new session.
 
 </pipeline>
 
-<context_exhaustion>
-Monitor context usage throughout execution:
-- At 65%: inject "be concise" guidance to agents
-- At 80%: skip Scribe, use cheapest model for all agents
-- At 90%: STOP new work, save state, commit current work
-- At 95%: emergency state dump, notify user to run /sf-resume
-</context_exhaustion>
+<context_management>
+## Context Management (ENFORCED — NEVER degrade quality)
+
+Between tasks, assess: can you complete the next task at FULL quality?
+If NO (context running low, responses getting long, repeated tool failures):
+
+1. Commit any uncommitted work
+2. Save progress: brain_context: { action: set, scope: session, key: progress, value: { completed: [task IDs], pending: [task IDs], next_task: [id] } }
+3. Output:
+   Context save point. [N]/[M] tasks completed.
+   Progress saved to brain.db.
+   Run /sf-resume in a new session to continue with fresh context.
+4. STOP. Do not start the next task.
+
+NEVER: reduce quality, skip verification, use grep instead of read, or rush to finish.
+Rule: save and resume > degrade and continue.
+</context_management>
 
 <context>
 $ARGUMENTS
