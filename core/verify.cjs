@@ -22,6 +22,10 @@ const { BUILD_TIMEOUT_MS } = require('./constants.cjs');
 
 function extractDoneCriteria(taskDescription, plan) {
   const criteria = [];
+  if (!taskDescription || typeof taskDescription !== 'string') {
+    criteria.push({ criterion: 'Build passes without errors', type: 'build', target: null });
+    return criteria;
+  }
   const combined = taskDescription + ' ' + (plan || '');
   let match;
 

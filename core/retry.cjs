@@ -4,6 +4,11 @@
  * GSD spawns a fresh debugger agent per failure (~10K tokens each).
  * ShipFast retries inline with targeted error context (~500 tokens).
  *
+ * Return conventions:
+ *   classifyError() → { type, retryable, hint } — error classification for retry decisions
+ *   executeWithRetry() → { success, result|error, attempts } — execution outcome
+ *   verify functions  → { passed, detail } — verification check results
+ *
  * Strategy:
  *   Attempt 1: Original task
  *   Attempt 2: Task + error message + learning hint (if available)

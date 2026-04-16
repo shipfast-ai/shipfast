@@ -135,16 +135,29 @@ function planExecution(cwd, analysis, tasks) {
 }
 
 /**
- * Record execution results into brain.db
+ * Record execution results into brain.db.
+ * On success, optionally runs verifyWithAutoFix if criteria are provided.
  */
-function recordExecution(cwd, taskId, result) {
+function recordExecution(cwd, taskId, result, doneCriteria) {
   if (result.success) {
     checkpoint.afterTask(cwd, taskId, 'passed', result.commitSha);
+
+    // Run verification with auto-fix if criteria provided
+    if (doneCriteria && doneCriteria.length > 0) {
+      const verify = require('./verify.cjs');
+      const verifyResult = verify.verifyWithAutoFix(cwd, doneCriteria);
+      if (verifyResult.score.verdict === 'FAIL' && !verifyResult.improved) {
+        brain.updateTask(cwd, taskId, {
+          status: 'passed',
+          error: 'Verification warnings: ' + verifyResult.score.failures.map(f => f.criterion).join('; ').slice(0, 500)
+        });
+      }
+    }
 
     // Auto-learn from success if applicable
     if (brain.getConfig(cwd, 'auto_learn') !== 'false') {
       const existing = brain.query(cwd,
-        `SELECT id FROM learnings WHERE pattern LIKE '%${brain.esc(result.domain || '')}%' AND solution IS NULL OR solution = '' LIMIT 1`
+        `SELECT id FROM learnings WHERE pattern LIKE '%${brain.esc(result.domain || '')}%' AND (solution IS NULL OR solution = '') LIMIT 1`
       );
       // If we had an unsolved learning for this domain, mark it solved
       if (existing.length) {

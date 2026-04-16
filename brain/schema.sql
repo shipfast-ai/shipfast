@@ -7,7 +7,7 @@
 
 CREATE TABLE IF NOT EXISTS nodes (
   id          TEXT PRIMARY KEY,       -- 'file:src/auth.ts', 'fn:validateToken', 'type:User'
-  kind        TEXT NOT NULL,          -- file | function | type | component | route | class | variable | export
+  kind        TEXT NOT NULL CHECK (kind IN ('file','function','type','component','route','class','variable','export')),
   name        TEXT NOT NULL,          -- human-readable name
   file_path   TEXT,                   -- relative file path
   line_start  INTEGER,
@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
 CREATE TABLE IF NOT EXISTS edges (
   source  TEXT NOT NULL,
   target  TEXT NOT NULL,
-  kind    TEXT NOT NULL,               -- imports | calls | implements | depends | mutates | exports | extends
+  kind    TEXT NOT NULL CHECK (kind IN ('imports','calls','implements','depends','mutates','exports','extends','co_changes')),
   weight  REAL DEFAULT 1.0,
   PRIMARY KEY (source, target, kind),
   FOREIGN KEY (source) REFERENCES nodes(id) ON DELETE CASCADE,

@@ -1,7 +1,7 @@
 ---
 name: sf-scribe
 description: Records decisions and learnings to brain.db. Extracts patterns from completed work. Writes PR descriptions.
-model: haiku
+model: haiku  # default — always haiku (documentation is simple)
 tools: Read, Bash, Glob, Grep
 ---
 

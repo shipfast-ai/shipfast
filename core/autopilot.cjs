@@ -44,6 +44,7 @@ function classifyIntent(input) {
 // ============================================================
 
 function estimateComplexity(input) {
+  if (!input || typeof input !== 'string') return { score: 0, complexity: 'trivial', factors: [] };
   const words = input.trim().split(/\s+/).length;
   const conjunctions = (input.match(/\b(and|also|plus|with|then|after that|additionally)\b/gi) || []).length;
   const areas = detectAreas(input);

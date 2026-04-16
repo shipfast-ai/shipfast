@@ -458,7 +458,7 @@ function indexCodebase(cwd, opts = {}) {
     execFileSync('sqlite3', [dbPath], { input: sql, stdio: ['pipe', 'pipe', 'pipe'] });
   }
 
-  // FIX #1: Clean orphan nodes (deleted/renamed/moved files)
+  // Clean orphan nodes: remove entries for files that no longer exist on disk
   let cleaned = 0;
   if (!changedOnly) {
     const discoveredPaths = new Set(files.map(f => path.relative(cwd, f).replace(/\\/g, '/')));
@@ -480,10 +480,10 @@ function indexCodebase(cwd, opts = {}) {
     }
   }
 
-  // FIX #6: Update hot files on every index
+  // Update hot files from git history on every index
   brain.updateHotFiles(cwd);
 
-  // FIX #11: Run co-change analysis
+  // Run co-change analysis from git history to detect files that change together
   try {
     const gitIntelPath = path.join(__dirname, '..', 'core', 'git-intel.cjs');
     if (fs.existsSync(gitIntelPath)) {
@@ -514,7 +514,7 @@ if (require.main === module) {
   const fresh = args.includes('--fresh');
   const cwd = args.find(a => !a.startsWith('-')) || process.cwd();
 
-  // FIX #8: --fresh flag deletes brain.db first
+  // --fresh flag: delete existing brain.db for full reindex
   if (fresh) {
     const dbPath = path.join(cwd, '.shipfast', 'brain.db');
     if (fs.existsSync(dbPath)) {

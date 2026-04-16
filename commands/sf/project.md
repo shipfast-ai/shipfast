@@ -113,11 +113,12 @@ key: 'overview'
 value: { name: "...", goal: "...", totalPhases: N, totalReqs: N }
 ```
 
-Store each requirement:
+Store each requirement (MUST execute — this powers /sf-verify requirement coverage):
 ```sql
 INSERT INTO requirements (id, category, description, priority, phase)
 VALUES ('AUTH-01', 'auth', 'User login with email/password', 'v1', 'Phase 1');
 ```
+**Do not skip this step.** Requirements in brain.db are used by /sf-verify for coverage tracking and by /sf-status for progress reporting.
 
 ## Step 5: Validate Coverage
 

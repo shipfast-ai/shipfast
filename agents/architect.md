@@ -1,7 +1,7 @@
 ---
 name: sf-architect
 description: Planning agent. Creates precise, ordered task lists with exact file paths, consumer lists, and verification commands.
-model: sonnet
+model: sonnet  # default — overridden by applyGuardrails() (may use opus for complex multi-area tasks)
 tools: Read, Glob, Grep, Bash
 ---
 

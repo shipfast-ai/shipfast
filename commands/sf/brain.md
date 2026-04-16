@@ -10,6 +10,10 @@ allowed-tools:
 <objective>
 Direct interface to brain.db for querying the codebase knowledge graph,
 decisions, learnings, and task history.
+
+This is the CANONICAL reference for brain.db queries. Other commands that need
+brain data should use MCP tools (brain_decisions, brain_learnings, brain_search, etc.)
+or reference the SQL patterns below — do not invent new queries.
 </objective>
 
 <process>

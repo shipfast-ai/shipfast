@@ -13,6 +13,8 @@ const brain = require('../brain/index.cjs');
  * @param {object} [flags] - Composable flags from /sf-do (--research, --discuss, etc.)
  */
 function shouldSkipScout(cwd, task, flags = {}) {
+  if (!task) return false;
+
   // --research flag forces Scout to run
   if (flags.research) return false;
 

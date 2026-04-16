@@ -1,7 +1,7 @@
 ---
 name: sf-scout
 description: Reconnaissance agent. Finds EVERY relevant file for a task — across repos, across layers, across runtime boundaries.
-model: haiku
+model: haiku  # default — overridden by applyGuardrails() dynamic model selection
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
 ---
 

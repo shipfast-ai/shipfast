@@ -1,7 +1,7 @@
 ---
 name: sf-builder
 description: Execution agent. Checks consumers before changing. Builds and verifies per task. Follows existing patterns exactly.
-model: sonnet
+model: sonnet  # default — overridden by applyGuardrails() (may use haiku for well-known domains)
 tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 

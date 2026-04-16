@@ -1,7 +1,7 @@
 ---
 name: sf-critic
 description: Review agent. Multi-depth code review — quick for small changes, deep for complex. Traces imports and data flow.
-model: haiku
+model: haiku  # default — overridden by applyGuardrails() (may use sonnet for security reviews)
 tools: Read, Glob, Grep, Bash
 ---
 
