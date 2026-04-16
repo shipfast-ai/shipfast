@@ -53,49 +53,35 @@ Skip any ambiguity that was already resolved in a previous session.
 ## Step 3: Ask Domain-Specific Questions
 
 **If `--batch` flag is set**: Group all questions into AskUserQuestion calls (max 4 per call).
-
 **If `--assume` flag is set**: Auto-resolve and present assumptions (see Assumptions Mode below).
 
-For each remaining ambiguity, ask a **domain-specific** question:
+For each remaining ambiguity, ask a **domain-specific** question using multiple choice (HOW), free text (WHERE), or confirmation (RISK):
 
-### UI Domain
-- HOW: "Layout density? [Compact | Comfortable | Spacious]"
-- HOW: "Interaction pattern? [Inline editing | Modal dialogs | Page navigation | Drawer panels]"
-- HOW: "Empty state behavior? [Placeholder | Onboarding CTA | Hide section]"
-- WHERE: "Which page/route should this appear on?"
-- RISK: "Does this affect existing UI users rely on?"
-
-### API Domain
-- HOW: "Response format? [JSON REST | GraphQL | tRPC | JSON-RPC]"
-- HOW: "Error handling? [HTTP status codes | Always 200 | RFC 7807]"
-- HOW: "Auth mechanism? [Bearer token | API key | Session cookie | Public]"
-- WHERE: "Which endpoint prefix? (e.g., /api/v1/users)"
-- RISK: "Public-facing or internal API?"
-
-### Database Domain
-- HOW: "ORM? [Prisma | Drizzle | TypeORM | Knex | Raw SQL | Match existing]"
-- HOW: "Migration strategy? [Auto-generate | Manual | Schema push]"
-- WHERE: "Which table/model?"
-- RISK: "Data migration needed? Existing production data?"
-
-### Auth Domain
-- HOW: "Auth approach? [JWT | Session cookies | OAuth2 | API keys]"
-- HOW: "Token storage? [httpOnly cookie | localStorage | Memory | Secure cookie + CSRF]"
-- HOW: "Role model? [Simple roles | RBAC | ABAC | No roles]"
-- RISK: "Affects existing user sessions?"
-
-### Content Domain
-- HOW: "Format? [Markdown | Rich text | Structured JSON | Plain text]"
-- HOW: "Tone? [Technical | Casual | Formal | Match existing]"
-- HOW: "i18n? [English only | Multi-language | i18n-ready]"
-
-### Infra Domain
-- HOW: "Deploy target? [Vercel | AWS | Docker | Self-hosted | Match existing]"
-- HOW: "CI/CD? [GitHub Actions | GitLab CI | CircleCI | None | Match existing]"
-
-Use **multiple choice** for HOW questions (saves user effort).
-Use **free text** for WHERE questions.
-Use **confirmation** for RISK questions.
+| Domain | Type | Question |
+|---|---|---|
+| **UI** | HOW | Layout density? [Compact \| Comfortable \| Spacious] |
+| UI | HOW | Interaction pattern? [Inline editing \| Modal dialogs \| Page navigation \| Drawer panels] |
+| UI | HOW | Empty state behavior? [Placeholder \| Onboarding CTA \| Hide section] |
+| UI | WHERE | Which page/route should this appear on? |
+| UI | RISK | Does this affect existing UI users rely on? |
+| **API** | HOW | Response format? [JSON REST \| GraphQL \| tRPC \| JSON-RPC] |
+| API | HOW | Error handling? [HTTP status codes \| Always 200 \| RFC 7807] |
+| API | HOW | Auth mechanism? [Bearer token \| API key \| Session cookie \| Public] |
+| API | WHERE | Which endpoint prefix? (e.g., /api/v1/users) |
+| API | RISK | Public-facing or internal API? |
+| **Database** | HOW | ORM? [Prisma \| Drizzle \| TypeORM \| Knex \| Raw SQL \| Match existing] |
+| Database | HOW | Migration strategy? [Auto-generate \| Manual \| Schema push] |
+| Database | WHERE | Which table/model? |
+| Database | RISK | Data migration needed? Existing production data? |
+| **Auth** | HOW | Auth approach? [JWT \| Session cookies \| OAuth2 \| API keys] |
+| Auth | HOW | Token storage? [httpOnly cookie \| localStorage \| Memory \| Secure cookie + CSRF] |
+| Auth | HOW | Role model? [Simple roles \| RBAC \| ABAC \| No roles] |
+| Auth | RISK | Affects existing user sessions? |
+| **Content** | HOW | Format? [Markdown \| Rich text \| Structured JSON \| Plain text] |
+| Content | HOW | Tone? [Technical \| Casual \| Formal \| Match existing] |
+| Content | HOW | i18n? [English only \| Multi-language \| i18n-ready] |
+| **Infra** | HOW | Deploy target? [Vercel \| AWS \| Docker \| Self-hosted \| Match existing] |
+| Infra | HOW | CI/CD? [GitHub Actions \| GitLab CI \| CircleCI \| None \| Match existing] |
 
 ## Step 4: Follow-Up Depth
 
@@ -115,7 +101,7 @@ After each answer, score it:
 
 Store each answer in brain.db with domain tag:
 
-Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[question]", "decision": "[answer]", "reasoning": "User-provided via discussion", "phase": "discuss", "tags": "[TYPE],[domain]" }`
+`brain_decisions: { action: add, question: [question], decision: [answer], reasoning: "User-provided via discussion", phase: discuss, tags: [TYPE],[domain] }`
 
 These decisions are:
 - Injected into all downstream agent contexts

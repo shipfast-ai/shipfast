@@ -25,7 +25,7 @@ can work simultaneously.
 ```bash
 git worktree list
 ```
-Use the `brain_context` MCP tool with: `{ "action": "list", "scope": "worktree" }` — returns all worktree context entries ordered by updated_at descending.
+`brain_context: { action: list, scope: worktree }` — returns all worktree context entries ordered by updated_at descending.
 Show all worktrees with path, branch, status (active/complete), and task counts.
 
 ### create <task description or name>
@@ -64,9 +64,7 @@ Branch name for this worktree?
 
 **Step 3: Multi-repo check**
 
-Query brain.db for linked repos:
-
-Use the `brain_config` MCP tool with: `{ "action": "get", "key": "linked_repos" }`
+`brain_config: { action: get, key: linked_repos }`
 
 If linked repos exist, ask which repos need this worktree (AskUserQuestion):
 ```
@@ -92,7 +90,7 @@ git -C [linked-path] worktree add [linked-path]/.shipfast/worktrees/[name] -b [b
 
 **Step 5: Store metadata**
 
-Use the `brain_context` MCP tool with: `{ "action": "set", "id": "worktree:[name]", "scope": "worktree", "key": "[name]", "value": "{\"status\":\"active\",\"branch\":\"[branch-name]\",\"path\":\".shipfast/worktrees/[name]\",\"repos\":[\".\"],\"created\":\"[timestamp]\"}" }`
+`brain_context: { action: set, id: "worktree:[name]", scope: worktree, key: [name], value: "{\"status\":\"active\",\"branch\":\"[branch-name]\",\"path\":\".shipfast/worktrees/[name]\",\"repos\":[\".\"],\"created\":\"[timestamp]\"}" }`
 
 **Step 6: Report**
 ```
@@ -128,7 +126,7 @@ Note: Unlike branches, worktrees don't need `git checkout`. Just `cd` into the d
 git -C .shipfast/worktrees/[name] status --short
 git -C .shipfast/worktrees/[name] log --oneline -5
 ```
-Use the `brain_tasks` MCP tool with: `{ "action": "list", "phase_contains": "[name]" }` — returns tasks for this worktree ordered by created_at.
+`brain_tasks: { action: list, phase_contains: [name] }` — returns tasks for this worktree ordered by created_at.
 Show: uncommitted changes, recent commits, and pending tasks for this worktree.
 
 ### check [name]
@@ -139,9 +137,9 @@ If `[name]` is provided, check that worktree's branch. If omitted, check the cur
 
 **Step 1: Resolve branches**
 
-Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — if empty, fall back to `"main"` as `$DEFAULT`.
+`brain_config: { action: get, key: default_branch }` — if empty, fall back to `"main"` as `$DEFAULT`.
 
-Get worktree's branch: if `[name]` is provided, use the `brain_context` MCP tool with: `{ "action": "get", "scope": "worktree", "key": "[name]" }` and parse the `branch` field. Otherwise, run `git branch --show-current` to get `$BRANCH`.
+Get worktree's branch: if `[name]` is provided, `brain_context: { action: get, scope: worktree, key: [name] }` and parse the `branch` field. Otherwise, run `git branch --show-current` to get `$BRANCH`.
 
 **Step 2: Get changed files**
 ```bash
@@ -177,9 +175,7 @@ grep -rl "SYMBOL_NAME" --include="*.ts" --include="*.tsx" --include="*.js" --inc
    - Found in a DIFFERENT file → **MIGRATED** (show `old_path → new_path`)
 
 2. **Check consumers via brain.db**:
-
-   Use the `brain_search` MCP tool with: `{ "query": "consumers:SYMBOL_NAME kind:imports,calls,depends" }` — returns files that consume the given symbol.
-
+   `brain_search: { query: "consumers:SYMBOL_NAME kind:imports,calls,depends" }` — returns files that consume the given symbol.
    - Has consumers AND not found elsewhere → **MISSING** (show consumers)
    - Zero consumers AND not found elsewhere → **SAFELY REMOVED**
 
@@ -248,14 +244,12 @@ Warning: [N] missing items with active consumers. Merge anyway?
 ```
 
 3. Get the default branch:
-
-   Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — if empty, fall back to `"main"` as `$DEFAULT`.
+   `brain_config: { action: get, key: default_branch }` — if empty, fall back to `"main"` as `$DEFAULT`.
 
 4. Ask: "Merge [branch] into $DEFAULT and remove worktree? [y/n]"
 
 5. If yes, also check multi-repo:
-
-   Use the `brain_context` MCP tool with: `{ "action": "get", "id": "worktree:[name]" }` — parse the `repos` field from the returned value.
+   `brain_context: { action: get, id: "worktree:[name]" }` — parse the `repos` field from the returned value.
 
 For current repo:
 ```bash
@@ -274,8 +268,7 @@ git -C [linked-path] branch -d [branch-name]
 ```
 
 6. Update brain.db:
-
-   Use the `brain_context` MCP tool with: `{ "action": "set", "id": "worktree:[name]", "scope": "worktree", "key": "[name]", "value": "<previous value with 'active' replaced by 'complete'>" }`
+   `brain_context: { action: set, id: "worktree:[name]", scope: worktree, key: [name], value: "<previous value with 'active' replaced by 'complete'>" }`
 
 7. Report: `Worktree [name] merged into $DEFAULT and removed.`
 

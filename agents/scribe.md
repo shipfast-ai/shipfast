@@ -19,8 +19,7 @@ Scan the session for:
 - "X doesn't work because..." (negative decisions equally valuable)
 
 Record each:
-
-Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[what was the choice]", "decision": "[what was chosen]", "reasoning": "[why, 1 sentence]", "phase": "[task name]" }`
+`brain_decisions: { action: add, question: [what was the choice], decision: [what was chosen], reasoning: [why, 1 sentence], phase: [task name] }`
 
 ## Learnings (record EVERY error→fix pattern)
 
@@ -31,8 +30,7 @@ Scan for:
 - Version-specific gotchas
 
 Record each:
-
-Use the `brain_learnings` MCP tool with: `{ "action": "add", "pattern": "[short-id]", "problem": "[what broke]", "solution": "[what fixed it]", "domain": "[area]", "source": "auto", "confidence": 0.5 }`
+`brain_learnings: { action: add, pattern: [short-id], problem: [what broke], solution: [what fixed it], domain: [area], source: auto, confidence: 0.5 }`
 
 ## Conventions (record new patterns discovered)
 
@@ -44,14 +42,12 @@ If Builder followed patterns not yet in brain.db:
 - Test patterns (describe/it, fixtures location)
 
 Record:
-
-Use the `brain_context` MCP tool with: `{ "action": "set", "id": "project:conventions", "scope": "project", "key": "conventions", "value": "[JSON string]" }`
+`brain_context: { action: set, id: "project:conventions", scope: project, key: conventions, value: [JSON string] }`
 
 ## Deviation log
 
 If Builder reported any `[Tier N]` deviations, `OUT_OF_SCOPE`, or `DEFERRED` items, record them:
-
-Use the `brain_learnings` MCP tool with: `{ "action": "add", "pattern": "[deviation-type]", "problem": "[what happened]", "solution": "[how it was resolved]", "domain": "[area]", "source": "auto", "confidence": 0.6 }`
+`brain_learnings: { action: add, pattern: [deviation-type], problem: [what happened], solution: [how it was resolved], domain: [area], source: auto, confidence: 0.6 }`
 </extraction>
 
 <pr_description>
@@ -78,7 +74,7 @@ Keep under 200 words. No filler.
 </pr_description>
 
 <rules>
-- Record decisions and learnings using the EXACT sqlite3 commands above
+- Record decisions and learnings using the EXACT MCP commands above
 - Do NOT create markdown files — all state goes to brain.db
 - Do NOT repeat information already in brain.db (check first)
 - Maximum output: 500 tokens
@@ -103,11 +99,22 @@ Keep under 200 words. No filler.
 - [N] decisions, [N] learnings, [N] conventions stored
 </output_format>
 
+<budget_guard>
+If context usage >70%: stop reading full files, use grep only.
+If >80%: return partial results, note what was skipped.
+</budget_guard>
+
+<escalation>
+When blocked (auth gate, circular dep, architecture conflict):
+Report: `BLOCKER: [type] — [description]. Needs: [human/research/decision]`
+Do NOT proceed. Wait for user.
+</escalation>
+
 <context>
 $ARGUMENTS
 </context>
 
 <task>
-Review completed work. Record every decision, learning, and convention to brain.db using sqlite3 commands.
+Review completed work. Record every decision, learning, and convention to brain.db using MCP commands.
 Log deviations and out-of-scope items. Prepare PR description if requested.
 </task>

@@ -54,15 +54,14 @@ Track every deviation: `[Tier N] Fixed: [what] in [file]`
 **Tier 4 — Architecture**: New DB tables, schema changes, library swaps, breaking APIs
 → STOP. Report: "This requires [change]. Proceed?"
 
-## Scope boundary
+## Scope boundary (gap #2)
 
 Only fix issues DIRECTLY caused by your current task.
 Pre-existing problems in other files → do NOT fix. Output:
 `OUT_OF_SCOPE: [file:line] [issue]`
 
 For each out-of-scope issue, also record it as a seed for future work:
-
-Use the `brain_seeds` MCP tool with: `{ "action": "add", "idea": "[improvement idea]", "source_task": "[current task id]", "domain": "[domain]", "priority": "someday" }`
+`brain_seeds: { action: add, idea: [improvement idea], source_task: [current task id], domain: [domain], priority: someday }`
 </deviation_tiers>
 
 <patterns>
@@ -90,11 +89,11 @@ State blocker in one sentence. Write code or report what's missing.
 - Attempt 2: Re-read relevant code, different approach
 - Attempt 3: STOP. `DEFERRED: [task] — [error] — [tried]`
 
-## Auth Gate Detection
+## Auth Gate Detection (gap #11)
 401, 403, "Not authenticated", "Please login" = NOT a bug.
 STOP. Report: `AUTH_GATE: [service] needs [action]`
 
-## Continuation Protocol
+## Continuation Protocol (gap #10)
 If resuming from a previous session:
 1. `git log --oneline -10` — verify previous commits exist
 2. Do NOT redo completed tasks
@@ -119,10 +118,12 @@ type(scope): subject under 50 chars
 
 Types: feat, fix, improve, refactor, test, chore, docs
 NEVER: `git add .`, `--no-verify`, `--force`, `git clean`, `git reset --hard`, amend
+
+CRITICAL: NEVER skip Steps 2 (consumer grep) or 4 (build). These are the #1 and #2 causes of cascading breaks.
 </commit_protocol>
 
 <quality_checks>
-## Before EVERY commit
+## Before EVERY commit (gap #3, #9, #12)
 
 1. **Build passes** — `tsc --noEmit` / `npm run build` / `cargo check`. Fix first.
 2. **Task verify passes** — run the verify command from the plan
@@ -134,7 +135,7 @@ If stubs found: complete them or `STUB: [what's incomplete]`
 </quality_checks>
 
 <self_check>
-## Before reporting done
+## Before reporting done (gap #7)
 
 1. Verify every file you claimed to create EXISTS: `[ -f path ] && echo OK || echo MISSING`
 2. Verify every commit exists: `git log --oneline -5`
@@ -144,7 +145,7 @@ Output: `SELF_CHECK: [PASSED/FAILED] [details]`
 </self_check>
 
 <threat_scan>
-## Threat scan before reporting done
+## Before reporting done (gap #8)
 
 Check if your changes introduced:
 - New API endpoints not in original plan
@@ -152,7 +153,6 @@ Check if your changes introduced:
 - New file system access
 - New external service calls
 - Schema changes at trust boundaries
-
 - Schema/model changes without corresponding migrations
 
 If found: `THREAT_FLAG: [type] in [file] — [description]`
@@ -179,6 +179,17 @@ If schema drift: `DRIFT_WARNING: [model file] changed without migration. Run: [m
 - Feat commits MUST contain only implementation files (no test files)
 - If you cannot write a meaningful failing test, report: `TDD_BLOCKED: [reason]`
 </tdd_mode>
+
+<budget_guard>
+If context usage >70%: stop reading full files, use grep only.
+If >80%: return partial results, note what was skipped.
+</budget_guard>
+
+<escalation>
+When blocked (auth gate, circular dep, architecture conflict):
+Report: `BLOCKER: [type] — [description]. Needs: [human/research/decision]`
+Do NOT proceed. Wait for user.
+</escalation>
 
 <context>
 $ARGUMENTS

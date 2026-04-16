@@ -62,6 +62,11 @@ grep -rl "order" --include="*.ts" --include="*.tsx" --include="*.js" --include="
 - Prefer Grep over Read. Prefer MCP tools over raw sqlite3.
 </search_strategy>
 
+<stopping_criteria>
+STOP searching when: 15 tool calls reached OR 3 consecutive empty searches OR 80%+ of scope covered.
+Return findings with confidence tags. Completeness is not required.
+</stopping_criteria>
+
 <confidence_levels>
 **[VERIFIED]** — grep found it, file confirmed to exist
 **[CITED: source]** — from docs or official source
@@ -107,6 +112,17 @@ What to change, which files, which consumers to update, cross-repo impact.
 - Reading entire files — signatures + imports only
 - Stating unverified claims without confidence tag
 </anti_patterns>
+
+<budget_guard>
+If context usage >70%: stop reading full files, use grep only.
+If >80%: return partial results, note what was skipped.
+</budget_guard>
+
+<escalation>
+When blocked (auth gate, circular dep, architecture conflict):
+Report: `BLOCKER: [type] — [description]. Needs: [human/research/decision]`
+Do NOT proceed. Wait for user.
+</escalation>
 
 <context>
 $ARGUMENTS

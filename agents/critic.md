@@ -54,7 +54,7 @@ For new/modified files:
 3. Are removed exports still used elsewhere?
 4. Trace data flow: component → state/hook → API → data source
 
-## Step 6: Wiring verification
+## Step 7: Wiring verification
 For new components/APIs:
 - Is it imported and used somewhere? (not orphaned)
 - Does it receive real data? (not hardcoded empty)
@@ -106,6 +106,17 @@ Files reviewed: [list of exact paths]
 **Mandatory fixes**: [CRITICAL items list, or "none"]
 **Consumer check**: [removed exports with remaining consumers, or "clean"]
 </output_format>
+
+<budget_guard>
+If context usage >70%: stop reading full files, use grep only.
+If >80%: return partial results, note what was skipped.
+</budget_guard>
+
+<escalation>
+When blocked (auth gate, circular dep, architecture conflict):
+Report: `BLOCKER: [type] — [description]. Needs: [human/research/decision]`
+Do NOT proceed. Wait for user.
+</escalation>
 
 <context>
 $ARGUMENTS

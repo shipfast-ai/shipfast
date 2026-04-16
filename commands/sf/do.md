@@ -36,6 +36,8 @@ Extract flags from `$ARGUMENTS` before processing. Flags start with `--` and are
 - `--batch` — Batch all discussion questions into 1-2 AskUserQuestion calls
 - `--chain` — After each step, auto-run the next (discuss → plan → check → execute)
 
+**Flag precedence** (highest wins): `--no-plan` > `--discuss` > `--cheap/--quality` > `--tdd/--research/--verify` > `--batch/--chain`
+
 **Parse procedure:**
 1. Extract all `--flag` tokens from the input
 2. Remove them from the task description (remaining text = task)
@@ -207,6 +209,8 @@ Execute inline. No planning, no Scout, no Architect, no Critic.
 6. Done. No SUMMARY, no verification.
 **Redirect**: if work exceeds 3 file edits or needs research → upgrade to medium workflow.
 
+**Trivial done**: files changed | build passes | committed | no stubs
+
 ### Medium workflow (1 Builder agent):
 Launch ONE Builder agent with ALL tasks batched and `model: models.builder` from Step 1.5:
 - Agent gets: base prompt + brain context + all task descriptions
@@ -215,11 +219,13 @@ Launch ONE Builder agent with ALL tasks batched and `model: models.builder` from
 - One agent call instead of one per task = token savings
 - If Critic is not skipped, launch Critic with `model: models.critic` after Builder completes
 
+**Medium done**: all tasks complete | build passes | committed | critic reviewed
+
 ### Complex workflow (per-task agents, fresh context each):
 
 **Check brain.db first** — if `/sf-plan` was run, tasks already exist:
 
-Use the `brain_tasks` MCP tool with: `{ "action": "list", "status": "pending" }`
+`brain_tasks: { action: list, status: pending }`
 
 If tasks found in brain.db, execute them. If not, run inline planning first.
 
@@ -246,16 +252,11 @@ For each pending task in brain.db:
 2. Builder gets fresh context — no accumulated garbage from previous tasks
 3. Builder executes: read → grep consumers → implement → build → verify → commit
 4. After Builder completes, update task status and record model outcome:
-
-   Use the `brain_tasks` MCP tool with: `{ "action": "update", "id": "[id]", "status": "passed", "commit_sha": "[sha]" }`
-
-   Use the `brain_model_outcome` MCP tool with: `{ "agent": "builder", "model": "[model used]", "domain": "[domain]", "task_id": "[id]", "outcome": "success" }`
-
+   - `brain_tasks: { action: update, id: [id], status: passed, commit_sha: [sha] }`
+   - `brain_model_outcome: { agent: builder, model: [model used], domain: [domain], task_id: [id], outcome: success }`
 5. If Builder fails after 3 attempts:
-
-   Use the `brain_tasks` MCP tool with: `{ "action": "update", "id": "[id]", "status": "failed", "error": "[error]" }`
-
-   Use the `brain_model_outcome` MCP tool with: `{ "agent": "builder", "model": "[model used]", "domain": "[domain]", "task_id": "[id]", "outcome": "failure" }`
+   - `brain_tasks: { action: update, id: [id], status: failed, error: [error] }`
+   - `brain_model_outcome: { agent: builder, model: [model used], domain: [domain], task_id: [id], outcome: failure }`
 6. Continue to next task regardless
 
 **Wave grouping + parallel execution:**
@@ -273,11 +274,13 @@ If a wave has 2+ tasks, launch ALL Builder agents in that wave simultaneously us
 - Stub detection before commit: scan for TODO/FIXME/placeholder
 - Commit hygiene: stage specific files, never `git add .`
 
+**Complex done**: all tasks [N/M] | build | critic | consumers clean | stubs clean | branch audit
+
 ---
 
 ## STEP 7: MANDATORY POST-EXECUTION VERIFICATION
 
-⚠️ **STOP-GATE: Do NOT output the final report or say "Done" until ALL checks below are complete. If you skip verification, the task is FAILED regardless of whether the code works. This is not optional.**
+STOP-GATE: Do NOT output the final report or say "Done" until ALL checks below are complete. If you skip verification, the task is FAILED regardless of whether the code works. This is not optional.
 
 You MUST complete **ALL** of the following in order. Check each off as you go.
 
@@ -322,7 +325,7 @@ Report: `Stubs: [CLEAN/N found]`
 ```bash
 CURRENT=$(git branch --show-current)
 ```
-Use the `brain_config` MCP tool with: `{ "action": "get", "key": "default_branch" }` — fall back to `"main"`.
+`brain_config: { action: get, key: default_branch }` — fall back to `"main"`.
 
 If `$CURRENT` ≠ `$DEFAULT`:
 - `git diff $DEFAULT...$CURRENT --diff-filter=D --name-only` → deleted files
@@ -352,7 +355,7 @@ If FAIL:
 4. If still failing → DEFERRED
 
 Store verification results:
-Use the `brain_context` MCP tool with: `{ "action": "set", "scope": "session", "key": "verification", "value": "[JSON results]" }`
+`brain_context: { action: set, scope: session, key: verification, value: [JSON results] }`
 
 Only AFTER 7A-7H are complete, proceed to STEP 8.
 
@@ -364,15 +367,15 @@ Only AFTER 7A-7H are complete, proceed to STEP 8.
 
 If you made any architectural decisions during this task, record each one:
 
-Use the `brain_decisions` MCP tool with: `{ "action": "add", "question": "[what was decided]", "decision": "[the choice]", "reasoning": "[why]", "phase": "[current task]" }`
+`brain_decisions: { action: add, question: [what was decided], decision: [the choice], reasoning: [why], phase: [current task] }`
 
 If you encountered and fixed any errors, record the pattern:
 
-Use the `brain_learnings` MCP tool with: `{ "action": "add", "pattern": "[short pattern name]", "problem": "[what went wrong]", "solution": "[what fixed it]", "domain": "[domain]", "source": "auto", "confidence": 0.5 }`
+`brain_learnings: { action: add, pattern: [short pattern name], problem: [what went wrong], solution: [what fixed it], domain: [domain], source: auto, confidence: 0.5 }`
 
 If any improvement ideas, future features, or tech debt were surfaced during this task (including OUT_OF_SCOPE items), record them as seeds:
 
-Use the `brain_seeds` MCP tool with: `{ "action": "add", "idea": "[idea]", "source_task": "[current task]", "domain": "[domain]", "priority": "someday" }`
+`brain_seeds: { action: add, idea: [idea], source_task: [current task], domain: [domain], priority: someday }`
 
 **These are not optional.** If decisions were made, errors were fixed, or ideas were surfaced, you MUST record them. This is how ShipFast gets smarter over time.
 
