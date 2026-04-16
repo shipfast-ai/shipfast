@@ -22,14 +22,98 @@ Cross-phase context (decisions, learnings, conventions) carries forward automati
 
 <process>
 
+## Step 0: Project Discovery (REQUIRED before planning)
+
+You are a senior technical discovery lead. Your job is to understand this project deeply enough to write complete requirements — every API endpoint, every data model, every user flow, every edge case.
+
+Read the user's description. Then identify what you DON'T know.
+
+### Coverage framework — you MUST understand ALL 10 categories before proceeding:
+
+1. **PROBLEM** — What pain point does this solve? For whom?
+2. **USERS** — Who uses it? What are their distinct needs/roles?
+3. **CORE FLOW** — What is the primary user journey? (step by step)
+4. **DATA** — What data is created, stored, queried? Relationships?
+5. **BOUNDARIES** — What is v1? What is explicitly NOT v1?
+6. **TECH** — Stack decisions (or detect from existing code via package.json/Cargo.toml/etc.)
+7. **AUTH** — Who can do what? Access control model?
+8. **INTEGRATIONS** — External services, APIs, third-party dependencies?
+9. **CONSTRAINTS** — Timeline, team, budget, compliance, performance?
+10. **RISKS** — What could go wrong? What's the hardest part?
+
+### How to ask:
+
+- Ask 2-4 questions per round using AskUserQuestion
+- Make questions specific to THIS project — not generic templates
+- Use multiple choice when there are known options, free text when open-ended
+- NEVER ask questions the description already answers
+- NEVER ask generic questions like "what's your vision?" — be specific to what's missing
+
+### Sufficiency check (after each round):
+
+Score each category: CLEAR (user answered) / ASSUMED (safe default) / UNKNOWN (gap).
+
+- 8+ categories CLEAR or ASSUMED → STOP asking, proceed to Step 1
+- 6-7 clear → one more round targeting gaps
+- <6 clear after Round 2 → ask: "I still have gaps in [X, Y, Z]. Clarify or should I assume?"
+- After Round 4 → STOP regardless, list all assumptions, proceed
+
+### Safe assumptions (don't need to ask):
+
+The LLM CAN assume when: tech choice has 80%+ market default (e.g., PostgreSQL for web apps), existing codebase already uses it, or user mentioned a related technology that implies it.
+
+The LLM MUST ask about: business logic decisions, integration choices, scope boundaries, anything with security/compliance implications.
+
+### User escape hatches:
+
+- "enough" / "just build it" / "start" → STOP immediately, proceed with assumptions
+- "I don't know" / "decide for me" → use safe default, mark as ASSUMED
+- "come back to this later" → mark as UNKNOWN, flag in requirements as TBD
+
+### Hard limits (prevent infinite loops):
+
+- Maximum 4 rounds (16 questions total)
+- Round 1 is REQUIRED. Rounds 2-4 are optional.
+- NEVER re-ask something already answered or locked in brain.db
+
+### Store discoveries:
+
+After each round, store answers as locked decisions:
+`brain_decisions: { action: add, question: [what was asked], decision: [user's answer], reasoning: "Discovery phase", phase: "discovery", tags: "[CATEGORY]" }`
+
+When assumptions are made, also store them:
+`brain_decisions: { action: add, question: [category], decision: "[ASSUMED] [default]", reasoning: "Safe default — user did not specify", phase: "discovery", tags: "[CATEGORY],assumed" }`
+
+### Present summary before proceeding:
+
+```
+Discovery Complete — [N] decisions locked
+
+CLEAR:
+  PROBLEM: [summary]
+  USERS: [summary]
+  TECH: [summary]
+  ...
+
+ASSUMED (override with /sf-brain decisions):
+  DATABASE: PostgreSQL (market default)
+  AUTH: JWT (implied by "API")
+
+UNKNOWN (flagged as TBD in requirements):
+  CONSTRAINTS: Timeline not specified
+```
+
+Use AskUserQuestion: "Discovery complete. Proceed to research + planning?"
+If no → user can add more context or override assumptions.
+
+---
+
 ## Step 1: Understand the Project
 
-Read the user's project description. If brain.db exists, load:
-- Existing tech stack context
+Load all discovery decisions from brain.db. If brain.db has existing context, also load:
+- Tech stack context
 - Previous decisions
 - Codebase conventions
-
-If the project description is ambiguous, run the ambiguity detection from /sf-discuss first.
 
 ## Step 1.5: Parallel Domain Research (for new/complex projects)
 

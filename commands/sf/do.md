@@ -124,6 +124,14 @@ Pipeline: scout → architect → builder → critic (acceleration: partial, 35%
 
 If `.shipfast/brain.db` does not exist, tell user to run `shipfast init` first.
 
+**Fresh project detection**: Check if brain.db has any decisions:
+`brain_decisions: { action: list }`
+If zero decisions AND the task is complex (not a simple fix):
+- This is a fresh project — run 1 quick discovery round before planning
+- Ask 2-4 questions about: PROBLEM (what does this solve?), USERS (who uses it?), BOUNDARIES (what's v1?), TECH (if no existing code detected)
+- Store answers as locked decisions. Then continue with normal pipeline.
+- This prevents building on wrong assumptions for fresh projects.
+
 **Crash recovery**: Check for stale lock file:
 ```bash
 [ -f .shipfast/lock ] && cat .shipfast/lock
