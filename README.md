@@ -10,7 +10,7 @@
 [![npm downloads](https://img.shields.io/npm/dw/@shipfast-ai/shipfast)](https://www.npmjs.com/package/@shipfast-ai/shipfast)
 [![GitHub stars](https://img.shields.io/github/stars/shipfast-ai/shipfast)](https://github.com/shipfast-ai/shipfast/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-52%20passing-brightgreen)]()
+[![Tests](https://github.com/shipfast-ai/shipfast/actions/workflows/test.yml/badge.svg)](https://github.com/shipfast-ai/shipfast/actions/workflows/test.yml)
 
 Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, CodeBuddy, Cline
 
