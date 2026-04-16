@@ -73,6 +73,12 @@ shipfast uninstall      # Remove from all AI tools
 
 No `--dangerously-skip-permissions` needed. Run `shipfast permissions` to view the allowlist.
 
+If auto-configured permissions don't work for your setup, you can fall back to:
+```bash
+claude --dangerously-skip-permissions
+```
+This skips ALL permission checks — use only in trusted environments.
+
 ---
 
 ## How It Works
