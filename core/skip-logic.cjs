@@ -115,7 +115,9 @@ function parseFlags(input) {
     '--tdd': 'tdd',
     '--no-plan': 'noPlan',
     '--cheap': 'cheap',
-    '--quality': 'quality'
+    '--quality': 'quality',
+    '--batch': 'batch',
+    '--chain': 'chain'
   };
 
   let task = input;

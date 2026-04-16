@@ -33,6 +33,8 @@ Extract flags from `$ARGUMENTS` before processing. Flags start with `--` and are
 - `--no-plan` — Skip discuss (Step 3) and plan (Step 4), go straight to execute
 - `--cheap` — Force ALL agents to use haiku (fastest, cheapest, ~80% cost reduction)
 - `--quality` — Force builder/architect to sonnet, architect to opus for complex tasks
+- `--batch` — Batch all discussion questions into 1-2 AskUserQuestion calls
+- `--chain` — After each step, auto-run the next (discuss → plan → check → execute)
 
 **Parse procedure:**
 1. Extract all `--flag` tokens from the input

@@ -231,3 +231,83 @@ describe('estimateComplexity', () => {
     assert.ok(r === 'trivial' || (r && r.complexity === 'trivial'));
   });
 });
+
+// --- ambiguity domain detection ---
+const { detectDomains, detectAmbiguity, getBatchQuestions, scoreAnswer, generateFollowUp } = require('../core/ambiguity.cjs');
+
+describe('detectDomains', () => {
+  it('detects UI domain', () => {
+    assert.ok(detectDomains('add a modal component').includes('ui'));
+  });
+  it('detects API domain', () => {
+    assert.ok(detectDomains('create REST endpoint').includes('api'));
+  });
+  it('detects auth domain', () => {
+    assert.ok(detectDomains('add JWT login').includes('auth'));
+  });
+  it('detects database domain', () => {
+    assert.ok(detectDomains('add prisma migration').includes('database'));
+  });
+  it('detects multiple domains', () => {
+    const d = detectDomains('add login page with session auth');
+    assert.ok(d.includes('ui'));
+    assert.ok(d.includes('auth'));
+  });
+  it('falls back to general', () => {
+    assert.deepEqual(detectDomains('do something'), ['general']);
+  });
+});
+
+describe('detectAmbiguity with domains', () => {
+  it('returns domain-specific questions for UI', () => {
+    const amb = detectAmbiguity('add dashboard page');
+    const how = amb.find(a => a.type === 'HOW');
+    assert.ok(how);
+    assert.equal(how.domain, 'ui');
+    assert.ok(how.options); // should have multiple choice options
+  });
+  it('returns domain-specific questions for API', () => {
+    const amb = detectAmbiguity('add api endpoint');
+    const how = amb.find(a => a.type === 'HOW');
+    assert.ok(how);
+    assert.equal(how.domain, 'api');
+  });
+});
+
+describe('getBatchQuestions', () => {
+  it('returns multiple questions for complex input', () => {
+    const qs = getBatchQuestions('add authentication with JWT and login page');
+    assert.ok(qs.length >= 2);
+  });
+  it('caps at 8 questions', () => {
+    const qs = getBatchQuestions('add authentication login page with database migration and API endpoint and deploy pipeline');
+    assert.ok(qs.length <= 8);
+  });
+});
+
+describe('scoreAnswer', () => {
+  it('scores multiple choice as 1.0', () => {
+    assert.equal(scoreAnswer('JWT (stateless)', 'multiple_choice'), 1.0);
+  });
+  it('scores "idk" as 0', () => {
+    assert.equal(scoreAnswer('idk', 'free_text'), 0);
+  });
+  it('scores short answer as 0.5', () => {
+    assert.equal(scoreAnswer('yes', 'free_text'), 0.5);
+  });
+  it('scores empty as 0', () => {
+    assert.equal(scoreAnswer('', 'free_text'), 0);
+  });
+});
+
+describe('generateFollowUp', () => {
+  it('generates WHERE follow-up', () => {
+    const f = generateFollowUp('WHERE', 'ui', 'somewhere');
+    assert.ok(f.includes('somewhere'));
+    assert.ok(f.includes('specific'));
+  });
+  it('generates HOW follow-up', () => {
+    const f = generateFollowUp('HOW', 'api', 'REST');
+    assert.ok(f.includes('REST'));
+  });
+});
