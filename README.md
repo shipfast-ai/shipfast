@@ -4,7 +4,7 @@
 
 **Autonomous context-engineered development system with SQLite brain.**
 
-**5 agents. 17 commands. Per-task fresh context. 70-90% fewer tokens.**
+**5 agents. 20 commands. Per-task fresh context. 70-90% fewer tokens.**
 
 Claude Code, OpenCode, Gemini CLI, Kilo, Codex, Copilot, Cursor, Windsurf, Antigravity, Augment, Trae, Qwen Code, CodeBuddy, Cline
 
@@ -24,7 +24,7 @@ Context rot kills AI coding quality. As the context window fills up, output degr
 
 ShipFast fixes this with a **SQLite knowledge graph** that gives each agent fresh context and gets smarter every session.
 
-- **17 commands, 5 composable agents** — simple to learn, covers the full workflow
+- **20 commands, 5 composable agents** — simple to learn, covers the full workflow
 - **SQLite brain** — queryable knowledge graph, no per-task state files
 - **3K-40K tokens per feature** — 70-90% less than typical AI dev workflows
 - **Fresh context per task** — no accumulated garbage between tasks
@@ -299,6 +299,7 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 | `/sf-status` | Show brain stats, tasks, checkpoints, version |
 | `/sf-resume` | Resume from previous session (loads state from brain.db) |
 | `/sf-undo [task-id]` | Rollback a completed task via git revert |
+| `/sf-rollback [last\|all\|N]` | Rollback last task, last N tasks, or entire session |
 
 ### Knowledge
 
@@ -307,6 +308,8 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 | `/sf-brain <query>` | Query knowledge graph: files, decisions, learnings, hot files |
 | `/sf-learn <pattern>` | Teach a reusable pattern (persists across sessions) |
 | `/sf-map` | Generate codebase report: architecture layers, hot files, co-change clusters |
+| `/sf-cost` | Token usage breakdown by agent, domain, and model |
+| `/sf-diff` | Smart diff viewer — changes grouped by task with file stats |
 
 ### Config
 

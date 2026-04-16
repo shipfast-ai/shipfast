@@ -42,6 +42,7 @@ Parse `key value` from arguments. Valid keys:
 - `model-scribe` -> `model_tier_scribe`
 - `auto-checkpoint` -> `auto_checkpoint` (true/false)
 - `auto-learn` -> `auto_learn` (true/false)
+- `post-ship-hook` -> `post_ship_hook` (shell command to run after /sf-ship)
 
 Update brain.db config table. Confirm the change:
 

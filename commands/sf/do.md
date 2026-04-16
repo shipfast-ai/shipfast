@@ -223,6 +223,20 @@ sqlite3 -json .shipfast/brain.db "SELECT id, description, plan_text FROM tasks W
 If tasks found in brain.db, execute them. If not, run inline planning first.
 
 **Per-task execution (fresh context per task):**
+
+**Progress reporting** — before each task, output:
+```
+[N/M] Building: [task description]...
+```
+After each task:
+```
+[N/M] ✓ [task description] (commit: [sha])
+```
+Or on failure:
+```
+[N/M] ✗ [task description] (error: [first 80 chars])
+```
+
 For each pending task in brain.db:
 1. Launch a SEPARATE sf-builder agent with ONLY that task + brain context + `model: models.builder` from Step 1.5. If `--tdd` flag is set, prepend `MODE: TDD (red→green→refactor). Write failing test FIRST.` to the task context.
 2. Builder gets fresh context — no accumulated garbage from previous tasks
@@ -239,10 +253,13 @@ For each pending task in brain.db:
    ```
 6. Continue to next task regardless
 
-**Wave grouping:**
-- Independent tasks (no `depends`) → same wave → launch Builder agents in parallel
+**Wave grouping + parallel execution:**
+- Independent tasks (no `depends`) → same wave
 - Dependent tasks → later wave → wait for dependencies to complete
 - Tasks touching same files → sequential (never parallel)
+
+**Parallel execution within waves:**
+If a wave has 2+ tasks, launch ALL Builder agents in that wave simultaneously using multiple Agent tool calls in a single response. Wait for all to complete before starting the next wave. This is safe because wave tasks are independent by definition.
 
 **After all tasks:**
 - Launch Critic agent (fresh context) with `model: models.critic` to review ALL changes: `git diff HEAD~N`

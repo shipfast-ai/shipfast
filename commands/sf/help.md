@@ -37,12 +37,15 @@ SHIPPING
 SESSION
   /sf-status               Brain stats, tasks, checkpoints, version.
   /sf-resume               Resume from previous session.
-  /sf-undo [task-id]       Rollback a completed task.
+  /sf-undo [task-id]       Rollback a specific task by ID.
+  /sf-rollback [last|all|N] Rollback last task, last N, or entire session.
 
 KNOWLEDGE
   /sf-brain <query>        Query knowledge graph: files, decisions, learnings, hot files.
   /sf-learn <pattern>      Teach a reusable pattern.
   /sf-map                  Generate codebase report from brain.db.
+  /sf-cost                 Token usage breakdown by agent, domain, model.
+  /sf-diff                 Smart diff viewer — changes grouped by task.
 
 PARALLEL WORK
   /sf-worktree list        Show all worktrees.

@@ -78,6 +78,7 @@ function main() {
     case 'update':   return cmdUpdate();
     case 'uninstall': return cmdUninstall();
     case 'status':   return cmdStatus();
+    case 'doctor':   return cmdDoctor();
     case 'help':
     case 'h':        return cmdHelp();
     case 'version':
@@ -148,7 +149,7 @@ function installFor(key, runtime) {
   // Copy commands
   const cmdDir = path.join(dir, 'commands', 'sf');
   fs.mkdirSync(cmdDir, { recursive: true });
-  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','worktree.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md'])
+  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','worktree.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md','rollback.md','cost.md','diff.md'])
     copy('commands/sf/' + f, path.join(cmdDir, f));
 
   // Copy hooks
@@ -269,6 +270,13 @@ function cmdInit() {
       });
     } catch { /* brain.db might not have config table yet on first run */ }
 
+    // Prune stale learnings (>30 days old, low confidence, never used)
+    try {
+      safeRun('sqlite3', [dbPath, "DELETE FROM learnings WHERE confidence < 0.3 AND times_used = 0 AND created_at < strftime('%s', 'now') - 2592000;"], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    } catch { /* learnings table may not exist yet */ }
+
     console.log(`\n${dim}Brain: .shipfast/brain.db${reset}`);
     console.log(`${dim}Default branch: ${defaultBranch}${reset}`);
     console.log(`${dim}Use /sf-do in your AI tool.${reset}\n`);
@@ -277,9 +285,101 @@ function cmdInit() {
   }
 }
 
-// ============================================================
+// Doctor command
+function cmdDoctor() {
+  const cwd = process.cwd();
+  const dbPath = path.join(cwd, '.shipfast', 'brain.db');
+  let issues = 0;
+
+  console.log(`${bold}ShipFast Doctor${reset}\n`);
+
+  // Check 1: brain.db exists
+  if (!fs.existsSync(dbPath)) {
+    console.log(`${red}ERROR${reset} brain.db not found. Run: ${cyan}shipfast init${reset}`);
+    return;
+  }
+  console.log(`${green}OK${reset}    brain.db exists`);
+
+  // Check 2: schema version
+  try {
+    const ver = safeRun('sqlite3', ['-json', dbPath, "SELECT MAX(version) as v FROM _migrations;"], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    const parsed = JSON.parse(ver);
+    console.log(`${green}OK${reset}    schema version: ${parsed[0].v}`);
+  } catch {
+    console.log(`${yellow}WARN${reset}  could not read schema version`);
+    issues++;
+  }
+
+  // Check 3: stale nodes (files that no longer exist)
+  try {
+    const nodes = safeRun('sqlite3', ['-json', dbPath, "SELECT file_path FROM nodes WHERE kind = 'file';"], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    if (nodes) {
+      const files = JSON.parse(nodes);
+      const stale = files.filter(f => !fs.existsSync(path.join(cwd, f.file_path)));
+      if (stale.length > 0) {
+        console.log(`${yellow}WARN${reset}  ${stale.length} stale node(s) — run ${cyan}shipfast init --fresh${reset} to clean`);
+        issues++;
+      } else {
+        console.log(`${green}OK${reset}    no stale nodes`);
+      }
+    }
+  } catch {
+    console.log(`${green}OK${reset}    no stale nodes`);
+  }
+
+  // Check 4: git repo
+  try {
+    safeRun('git', ['rev-parse', '--git-dir'], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+    console.log(`${green}OK${reset}    git repo detected`);
+  } catch {
+    console.log(`${red}ERROR${reset} not a git repo`);
+    issues++;
+  }
+
+  // Check 5: linked repos
+  try {
+    const links = safeRun('sqlite3', ['-json', dbPath, "SELECT value FROM config WHERE key = 'linked_repos';"], {
+      encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    if (links) {
+      const parsed = JSON.parse(links);
+      if (parsed.length && parsed[0].value) {
+        const repos = JSON.parse(parsed[0].value);
+        for (const r of repos) {
+          const hasDb = fs.existsSync(path.join(r, '.shipfast', 'brain.db'));
+          if (hasDb) {
+            console.log(`${green}OK${reset}    linked: ${path.basename(r)}`);
+          } else {
+            console.log(`${yellow}WARN${reset}  linked repo missing brain.db: ${r}`);
+            issues++;
+          }
+        }
+      }
+    }
+  } catch { /* no linked repos */ }
+
+  // Check 6: node counts
+  try {
+    const stats = safeRun('sqlite3', ['-json', dbPath,
+      "SELECT 'nodes' as t, COUNT(*) as c FROM nodes UNION ALL SELECT 'edges', COUNT(*) FROM edges UNION ALL SELECT 'learnings', COUNT(*) FROM learnings;"],
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim();
+    if (stats) {
+      const parsed = JSON.parse(stats);
+      const counts = {};
+      parsed.forEach(r => counts[r.t] = r.c);
+      console.log(`${green}OK${reset}    ${counts.nodes || 0} nodes, ${counts.edges || 0} edges, ${counts.learnings || 0} learnings`);
+    }
+  } catch { /* ok */ }
+
+  console.log(`\n${issues === 0 ? green + 'All checks passed.' : yellow + issues + ' issue(s) found.'}${reset}\n`);
+}
+
 // LINK — connect another repo's brain for cross-repo awareness
-// ============================================================
 
 function cmdLink() {
   const targetPath = process.argv[3];
@@ -554,6 +654,7 @@ function cmdHelp() {
   console.log(`  ${cyan}shipfast status${reset}           Show installed runtimes + brain + links`);
   console.log(`  ${cyan}shipfast update${reset}           Update to latest + re-detect runtimes`);
   console.log(`  ${cyan}shipfast uninstall${reset}        Remove from all AI tools`);
+  console.log(`  ${cyan}shipfast doctor${reset}          Check brain.db health + diagnose issues`);
   console.log(`  ${cyan}shipfast help${reset}             Show this help\n`);
   console.log(`${bold}In your AI tool:${reset}\n`);
   console.log(`  ${cyan}/sf-do${reset} <task>         The one command — describe what you want`);

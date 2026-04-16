@@ -79,7 +79,7 @@ function addEdge(cwd, source, target, kind, weight = 1.0) {
 
 function getBlastRadius(cwd, filePaths, maxDepth = 3) {
   const fileList = filePaths.map(f => `'file:${esc(f)}'`).join(',');
-  return query(cwd, `
+  const sql = `
     WITH RECURSIVE affected(id, depth) AS (
       SELECT id, 0 FROM nodes WHERE id IN (${fileList})
       UNION
@@ -92,7 +92,35 @@ function getBlastRadius(cwd, filePaths, maxDepth = 3) {
     WHERE n.signature IS NOT NULL AND n.signature != ''
     ORDER BY a.depth ASC
     LIMIT 30
-  `);
+  `;
+
+  const local = query(cwd, sql);
+
+  // Cross-repo blast radius: query linked repos too
+  const linkedConfig = getConfig(cwd, 'linked_repos');
+  if (linkedConfig) {
+    try {
+      const linkedPaths = JSON.parse(linkedConfig);
+      for (const repoPath of linkedPaths) {
+        const linkedDb = path.join(repoPath, '.shipfast', 'brain.db');
+        if (fs.existsSync(linkedDb)) {
+          try {
+            const result = execFileSync('sqlite3', ['-json', linkedDb, sql], {
+              encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+            }).trim();
+            if (result) {
+              const parsed = JSON.parse(result);
+              const repoName = path.basename(repoPath);
+              parsed.forEach(row => { row._repo = repoName; });
+              local.push(...parsed);
+            }
+          } catch { /* linked repo query failed */ }
+        }
+      }
+    } catch { /* linked_repos not valid JSON */ }
+  }
+
+  return local.slice(0, 30);
 }
 
 function getSignaturesForFile(cwd, filePath) {

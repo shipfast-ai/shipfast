@@ -86,6 +86,20 @@ PR ready: https://github.com/[org]/[repo]/compare/main...[branch]?expand=1
 [PR description above — copy into the PR body]
 ```
 
+## Step 6: Post-Ship Hook (optional)
+
+Check brain.db for a configured post-ship hook:
+```bash
+sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key = 'post_ship_hook';" 2>/dev/null
+```
+
+If a hook is configured (e.g., `npm run deploy`, `./scripts/notify.sh`):
+1. Report: `Running post-ship hook: [command]`
+2. Execute the command
+3. Report result: `Hook completed.` or `Hook failed: [error]`
+
+Configure with: `/sf-config post-ship-hook <command>`
+
 </process>
 
 <context>
