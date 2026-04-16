@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Agent
   - AskUserQuestion
+  - Skill
 ---
 
 <objective>
@@ -92,9 +93,17 @@ Tasks:
   1. [description] — [files] — [size]
   2. [description] — [files] — [size]
   ...
-
-Run /sf-do to execute. Tasks will run with fresh context per task.
 ```
+
+## Step 7: Ask to execute
+
+After showing the plan, ask the user:
+
+Use AskUserQuestion: "Plan ready with [N] tasks. Execute now?"
+- Options: "Yes, execute" / "No, I'll review first"
+
+If user says yes → use the Skill tool with skill_name "sf:do" to start execution.
+If user says no → stop here. User can run `/sf-do` manually later.
 
 </process>
 

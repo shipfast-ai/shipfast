@@ -9,6 +9,7 @@ allowed-tools:
   - Grep
   - Agent
   - AskUserQuestion
+  - Skill
 ---
 
 <objective>
@@ -147,8 +148,12 @@ Phase 4: [name] — [1-line description] (depends on Phase 2, 3)
 
 Coverage: [M]/[M] v1 requirements mapped (100%)
 
-Start with Phase 1? (Run /sf-do to begin)
 ```
+
+Use AskUserQuestion: "Project decomposed into [N] phases. Start Phase 1: [name]?"
+- Options: "Yes, start Phase 1" / "No, I'll review first"
+
+If yes → use the Skill tool with skill_name "sf:do" and argument "Phase 1: [description]".
 
 ## Step 7: Execution
 

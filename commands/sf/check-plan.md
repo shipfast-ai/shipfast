@@ -6,6 +6,8 @@ allowed-tools:
   - Bash
   - Glob
   - Grep
+  - AskUserQuestion
+  - Skill
 ---
 
 <objective>
@@ -65,8 +67,20 @@ Threats: [N] flagged
   ISSUE: Task [id] — [file not found / missing consumer / scope creep / etc.]
   THREAT: [S/T/R/I/D/E] [component] — [what's needed]
 
-Fix plan with /sf-plan, then re-check with /sf-check-plan.
 ```
+
+## Step 6: Ask next step
+
+If PASS:
+  Use AskUserQuestion: "Plan verified — no issues. Execute now?"
+  - Options: "Yes, execute" / "No, I'll review first"
+  If yes → use the Skill tool with skill_name "sf:do" to start execution.
+
+If ISSUES FOUND:
+  Use AskUserQuestion: "[N] issues found. What do you want to do?"
+  - Options: "Re-plan (fix issues first)" / "Execute anyway" / "Stop"
+  If re-plan → use Skill tool with skill_name "sf:plan" and the original task.
+  If execute anyway → use Skill tool with skill_name "sf:do".
 
 </process>
 

@@ -7,6 +7,7 @@ allowed-tools:
   - Glob
   - Grep
   - AskUserQuestion
+  - Skill
 ---
 
 <objective>
@@ -127,8 +128,17 @@ Failed items:
   - [truth/artifact]: [what's wrong]
   - [truth/artifact]: [what's wrong]
 
-Fix with: /sf-do [fix description]
 ```
+
+If verdict is FAIL:
+  Use AskUserQuestion: "Verification failed with [N] issues. Auto-fix?"
+  - Options: "Yes, auto-fix" / "No, I'll fix manually"
+  If yes → use the Skill tool with skill_name "sf:do" and the fix descriptions as argument.
+
+If verdict is PASS:
+  Use AskUserQuestion: "Verification passed. Ship it?"
+  - Options: "Yes, create PR" / "No, not yet"
+  If yes → use the Skill tool with skill_name "sf:ship".
 
 ## Step 9: Store results
 

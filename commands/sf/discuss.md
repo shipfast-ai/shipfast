@@ -5,6 +5,8 @@ argument-hint: "<task description> [--batch] [--chain] [--assume]"
 allowed-tools:
   - Read
   - Bash
+  - Glob
+  - Grep
   - AskUserQuestion
   - Skill
 ---
@@ -120,7 +122,7 @@ These decisions are:
 - Never asked again (even across sessions)
 - Visible via `/sf-brain decisions`
 
-## Step 6: Report
+## Step 6: Report + Ask Next Step
 
 ```
 Resolved [N] ambiguities (domains: [ui, auth]):
@@ -128,9 +130,12 @@ Resolved [N] ambiguities (domains: [ui, auth]):
   HOW (ui): Compact layout, modal dialogs
   WHERE: /app/auth/login page
   RISK: Development only — confirmed
-
-Ready for planning. Run /sf-do to continue.
 ```
+
+If `--chain` flag is NOT set:
+  Use AskUserQuestion: "Decisions locked. Plan and execute this task?"
+  - Options: "Yes, plan now" / "No, I'll do it later"
+  If yes → use the Skill tool with skill_name "sf:plan" and the original task description.
 
 ## Step 7: Chain Mode (when `--chain` flag is set)
 

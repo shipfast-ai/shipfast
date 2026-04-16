@@ -6,6 +6,7 @@ allowed-tools:
   - Read
   - Bash
   - AskUserQuestion
+  - Skill
 ---
 
 <objective>
@@ -80,8 +81,11 @@ Decisions: 8 recorded
 Learnings: 12 captured
 
 Tagged: v1.0
-Run /sf-milestone new v2.0 to start next cycle.
 ```
+
+Use AskUserQuestion: "Milestone complete. Start next milestone?"
+- Options: "Yes, start new milestone" / "No, done for now"
+If yes → use the Skill tool with skill_name "sf:milestone" and argument "new [next version]".
 
 ---
 
@@ -120,8 +124,12 @@ Carried forward: 2 unfinished requirements from v1
 Promoted: 4 requirements from v2 backlog
 Total v2 scope: 6 requirements
 
-Run /sf-project to decompose into phases, or /sf-do to start working.
 ```
+
+Use AskUserQuestion: "New milestone ready. What's next?"
+- Options: "Decompose into phases (/sf-project)" / "Start working directly (/sf-do)" / "Stop here"
+If decompose → use the Skill tool with skill_name "sf:project".
+If start working → use the Skill tool with skill_name "sf:do".
 
 </process>
 
