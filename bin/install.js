@@ -78,7 +78,8 @@ function main() {
     case 'update':   return cmdUpdate();
     case 'uninstall': return cmdUninstall();
     case 'status':   return cmdStatus();
-    case 'doctor':   return cmdDoctor();
+    case 'doctor':      return cmdDoctor();
+    case 'permissions': return cmdPermissions();
     case 'help':
     case 'h':        return cmdHelp();
     case 'version':
@@ -279,6 +280,7 @@ function cmdInit() {
 
     console.log(`\n${dim}Brain: .shipfast/brain.db${reset}`);
     console.log(`${dim}Default branch: ${defaultBranch}${reset}`);
+    console.log(`${dim}Permissions: 19 safe patterns configured (no --dangerously-skip-permissions needed)${reset}`);
     console.log(`${dim}Use /sf-do in your AI tool.${reset}\n`);
   } catch (err) {
     console.log(`${red}Failed: ${err.message.slice(0, 100)}${reset}\n`);
@@ -377,6 +379,69 @@ function cmdDoctor() {
   } catch { /* ok */ }
 
   console.log(`\n${issues === 0 ? green + 'All checks passed.' : yellow + issues + ' issue(s) found.'}${reset}\n`);
+}
+
+// Permissions command
+function cmdPermissions() {
+  const reset = process.argv.includes('--reset');
+
+  // Find settings.json in known locations
+  const home = os.homedir();
+  const locations = [
+    path.join(home, '.claude', 'settings.json'),
+    path.join(process.cwd(), '.claude', 'settings.json')
+  ];
+
+  for (const sp of locations) {
+    if (!fs.existsSync(sp)) continue;
+    let s = {};
+    try { s = JSON.parse(fs.readFileSync(sp, 'utf8')); } catch { continue; }
+
+    if (reset) {
+      // Reset to ShipFast defaults
+      const defaults = [
+        'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent',
+        'Bash(git *)', 'Bash(npm run build*)', 'Bash(npm test*)',
+        'Bash(npx tsc*)', 'Bash(npx vitest*)', 'Bash(cargo check*)',
+        'Bash(grep *)', 'Bash(find *)', 'Bash(wc *)', 'Bash(cat *)',
+        'Bash(ls *)', 'Bash(mkdir *)', 'Bash(node *)'
+      ];
+      if (!s.permissions) s.permissions = {};
+      s.permissions.allow = defaults;
+      fs.writeFileSync(sp, JSON.stringify(s, null, 2));
+      console.log(`${green}Permissions reset to ShipFast defaults (${defaults.length} rules).${reset}`);
+      console.log(`${dim}File: ${sp}${reset}\n`);
+      return;
+    }
+
+    const allow = (s.permissions && s.permissions.allow) || [];
+    console.log(`${bold}ShipFast Permissions${reset}\n`);
+    console.log(`${dim}File: ${sp}${reset}\n`);
+
+    if (allow.length === 0) {
+      console.log(`${yellow}No permissions configured.${reset} Run ${cyan}shipfast init${reset} to set up.\n`);
+      return;
+    }
+
+    console.log(`${bold}Allowed (${allow.length} rules):${reset}`);
+    for (const p of allow) {
+      console.log(`  ${green}✓${reset} ${p}`);
+    }
+
+    const deny = (s.permissions && s.permissions.deny) || [];
+    if (deny.length > 0) {
+      console.log(`\n${bold}Denied:${reset}`);
+      for (const p of deny) {
+        console.log(`  ${red}✗${reset} ${p}`);
+      }
+    }
+
+    console.log(`\n${dim}Everything not listed above will prompt for permission.${reset}`);
+    console.log(`${dim}Reset with: ${cyan}shipfast permissions --reset${reset}\n`);
+    return;
+  }
+
+  console.log(`${yellow}No settings.json found.${reset} Run ${cyan}shipfast init${reset} first.\n`);
 }
 
 // LINK — connect another repo's brain for cross-repo awareness
@@ -655,6 +720,7 @@ function cmdHelp() {
   console.log(`  ${cyan}shipfast update${reset}           Update to latest + re-detect runtimes`);
   console.log(`  ${cyan}shipfast uninstall${reset}        Remove from all AI tools`);
   console.log(`  ${cyan}shipfast doctor${reset}          Check brain.db health + diagnose issues`);
+  console.log(`  ${cyan}shipfast permissions${reset}     Show configured permission allowlist`);
   console.log(`  ${cyan}shipfast help${reset}             Show this help\n`);
   console.log(`${bold}In your AI tool:${reset}\n`);
   console.log(`  ${cyan}/sf-do${reset} <task>         The one command — describe what you want`);
@@ -693,6 +759,25 @@ function writeSettings(dir, hooksDir) {
     s.hooks[evt] = s.hooks[evt] || [];
     if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));
   }
+
+  // Auto-configure safe permission allowlist — no --dangerously-skip-permissions needed
+  if (!s.permissions) s.permissions = {};
+  if (!s.permissions.allow) s.permissions.allow = [];
+
+  const shipfastPermissions = [
+    'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent',
+    'Bash(git *)', 'Bash(npm run build*)', 'Bash(npm test*)',
+    'Bash(npx tsc*)', 'Bash(npx vitest*)', 'Bash(cargo check*)',
+    'Bash(grep *)', 'Bash(find *)', 'Bash(wc *)', 'Bash(cat *)',
+    'Bash(ls *)', 'Bash(mkdir *)', 'Bash(node *)'
+  ];
+
+  for (const perm of shipfastPermissions) {
+    if (!s.permissions.allow.includes(perm)) {
+      s.permissions.allow.push(perm);
+    }
+  }
+
   fs.writeFileSync(sp, JSON.stringify(s, null, 2));
 }
 

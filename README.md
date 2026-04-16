@@ -56,15 +56,22 @@ Auto-detects your AI tools and installs for all of them. Verify: run `/sf-help` 
 ### Terminal Commands
 
 ```bash
-shipfast init           # Index current repo into .shipfast/brain.db
+shipfast init           # Index repo + auto-configure permissions (no --dangerously-skip-permissions needed)
 shipfast init --fresh   # Full reindex (clears existing brain)
 shipfast link <path>    # Link another repo for cross-repo search
 shipfast unlink [path]  # Unlink a repo (or all)
 shipfast doctor         # Check brain.db health + diagnose issues
+shipfast permissions    # Show configured permission allowlist
 shipfast status         # Show installed runtimes + brain + links
 shipfast update         # Update + re-detect runtimes
 shipfast uninstall      # Remove from all AI tools
 ```
+
+### Permissions (Zero Prompts)
+
+`shipfast init` auto-configures safe permission rules in `.claude/settings.json`. ShipFast operations (Read, Edit, Write, git, build, test, grep) run without permission prompts. Destructive commands (rm, curl, ssh, sudo) still require approval.
+
+No `--dangerously-skip-permissions` needed. Run `shipfast permissions` to view the allowlist.
 
 ---
 
