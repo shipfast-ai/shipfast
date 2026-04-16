@@ -57,6 +57,23 @@ ${knownPattern.solution}
 }
 
 /**
+ * Detect if errors across attempts indicate being stuck (same error repeating).
+ * Returns true if the last 2 errors are substantially similar.
+ */
+function isStuck(errors) {
+  if (errors.length < 2) return false;
+  const last = (errors[errors.length - 1] || '').toString().toLowerCase().slice(0, 200);
+  const prev = (errors[errors.length - 2] || '').toString().toLowerCase().slice(0, 200);
+  if (!last || !prev) return false;
+  // Check if 60%+ of words overlap
+  const lastWords = new Set(last.split(/\s+/));
+  const prevWords = new Set(prev.split(/\s+/));
+  let overlap = 0;
+  for (const w of lastWords) { if (prevWords.has(w)) overlap++; }
+  return overlap / Math.max(lastWords.size, prevWords.size) > 0.6;
+}
+
+/**
  * Determine retry strategy based on error type.
  */
 function classifyError(error) {
@@ -100,6 +117,7 @@ function classifyError(error) {
 function withRetry(cwd, task, executeFn, maxAttempts = 3) {
   let lastError = null;
   let totalTokens = 0;
+  const errors = [];
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -116,6 +134,17 @@ function withRetry(cwd, task, executeFn, maxAttempts = 3) {
             errorType: classification.type,
             hint: classification.hint,
             attempts: attempt - 1,
+            tokensUsed: totalTokens
+          };
+        }
+
+        // Don't retry if stuck (same error repeating)
+        if (isStuck(errors)) {
+          return {
+            success: false,
+            error: lastError,
+            stuck: true,
+            attempts,
             tokensUsed: totalTokens
           };
         }
@@ -146,9 +175,11 @@ function withRetry(cwd, task, executeFn, maxAttempts = 3) {
       }
 
       lastError = result.error || new Error('Task failed without error details');
+      errors.push(lastError);
 
     } catch (err) {
       lastError = err;
+      errors.push(lastError);
     }
   }
 
@@ -171,5 +202,6 @@ function withRetry(cwd, task, executeFn, maxAttempts = 3) {
 module.exports = {
   buildRetryContext,
   classifyError,
+  isStuck,
   withRetry
 };

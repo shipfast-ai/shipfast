@@ -17,6 +17,12 @@ This command loads that state, verifies commits exist, and continues with fresh 
 
 ## Step 1: Load Saved Progress
 
+Check for lock file indicating crashed session:
+```bash
+[ -f .shipfast/lock ] && cat .shipfast/lock
+```
+If found: "Detected interrupted session. Recovering..."
+
 Query brain.db for the latest saved session progress:
 
 `brain_context: { action: get, scope: session, key: progress }`

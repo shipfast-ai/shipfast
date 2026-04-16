@@ -89,6 +89,18 @@ State blocker in one sentence. Write code or report what's missing.
 - Attempt 2: Re-read relevant code, different approach
 - Attempt 3: STOP. `DEFERRED: [task] — [error] — [tried]`
 
+## Stuck Detection
+Track errors across attempts. If the SAME error appears in consecutive attempts:
+- Same file + same line + same error type across 2+ attempts
+- Build output identical to previous attempt after your fix
+- Test failure unchanged after code change
+
+If stuck detected:
+1. Do NOT retry again
+2. Report: `STUCK: [error pattern] — tried [N] times with same result`
+3. Suggest: "This may need: manual fix / different approach / architecture change"
+4. Save state and STOP
+
 ## Auth Gate Detection (gap #11)
 401, 403, "Not authenticated", "Please login" = NOT a bug.
 STOP. Report: `AUTH_GATE: [service] needs [action]`

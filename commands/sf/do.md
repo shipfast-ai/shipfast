@@ -124,6 +124,18 @@ Pipeline: scout → architect → builder → critic (acceleration: partial, 35%
 
 If `.shipfast/brain.db` does not exist, tell user to run `shipfast init` first.
 
+**Crash recovery**: Check for stale lock file:
+```bash
+[ -f .shipfast/lock ] && cat .shipfast/lock
+```
+If `.shipfast/lock` exists and is older than 30 minutes:
+- Previous session was interrupted
+- Read lock to find which task was in progress
+- Check brain.db for task statuses: brain_tasks: { action: list }
+- Report: "Recovered from interrupted session. [N]/[M] tasks completed. Resuming from task [N+1]."
+- Continue with pending tasks (skip already-passed ones)
+- Delete the stale lock file
+
 **Store the changed files list** — use it in Step 4 (Scout) and Step 6 (Builder) for targeted context.
 
 ---
@@ -192,6 +204,11 @@ Before execution:
 
 ## STEP 6: EXECUTE (2-30K tokens)
 
+**Create lock file** before starting execution:
+```bash
+echo '{"task":"[current_task_id]","started":'$(date +%s)'}' > .shipfast/lock
+```
+
 **CRITICAL RULE FOR ALL WORKFLOWS:**
 Before removing, deleting, or modifying any function/type/selector/export/component:
 1. `grep -r "name" --include="*.ts" --include="*.tsx" .` to find ALL consumers
@@ -258,6 +275,14 @@ For each pending task in brain.db:
 5. If Builder fails after 3 attempts:
    - `brain_tasks: { action: update, id: [id], status: failed, error: [error] }`
    - `brain_model_outcome: { agent: builder, model: [model used], domain: [domain], task_id: [id], outcome: failure }`
+   If Builder reports STUCK (same error pattern repeated):
+   - Do NOT retry with same approach
+   - Record: brain_learnings: { action: add, pattern: stuck-[domain], problem: [repeated error], solution: null }
+   - Use AskUserQuestion: "Builder is stuck on [task]. What to do?"
+     Options: "Skip this task" / "Try different approach" / "I'll fix manually"
+   - If skip → mark task as skipped, continue to next
+   - If different approach → re-run Builder with hint: "Previous approach failed: [error]. Try a different approach."
+   - If manual → save state, STOP
 6. Continue to next task regardless
 
 **Wave grouping + parallel execution:**
@@ -357,6 +382,11 @@ If FAIL:
 
 Store verification results:
 `brain_context: { action: set, scope: session, key: verification, value: [JSON results] }`
+
+**Delete lock file** after all tasks complete:
+```bash
+rm -f .shipfast/lock
+```
 
 Only AFTER 7A-7H are complete, proceed to STEP 8.
 
