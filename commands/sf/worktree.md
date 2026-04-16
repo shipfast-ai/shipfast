@@ -1,9 +1,12 @@
 ---
 name: sf:worktree
-description: "Manage parallel worktrees — create, list, switch, status, complete. Uses git worktree for true parallel development."
-argument-hint: "list | create <name> | switch <name> | status <name> | complete <name>"
+description: "Manage parallel worktrees — create, list, switch, status, check, complete. Uses git worktree for true parallel development."
+argument-hint: "list | create <task> | switch <name> | status <name> | check [name] | complete <name>"
 allowed-tools:
+  - Read
   - Bash
+  - Grep
+  - Glob
   - AskUserQuestion
 ---
 
@@ -25,24 +28,79 @@ sqlite3 -json .shipfast/brain.db "SELECT key, value FROM context WHERE scope = '
 ```
 Show all worktrees with path, branch, status (active/complete), and task counts.
 
-### create <name>
-1. Create worktree with new branch:
-```bash
-git worktree add .shipfast/worktrees/[name] -b sf/[name]
+### create <task description or name>
+
+**Step 1: Smart branch name suggestion**
+
+Detect intent prefix from the input:
+- fix/bug/broken/error/crash → `fix/`
+- refactor/clean/simplify/extract → `refactor/`
+- add/create/build/implement/new/feat → `feat/`
+- update/upgrade/migrate/bump/chore → `chore/`
+- test/spec/coverage → `test/`
+- docs/readme/document → `docs/`
+- Default (no match) → `feat/`
+
+Generate branch name:
+1. Extract the intent prefix
+2. Strip the intent keyword + filler words (the, a, an, for, with, and, to, in, on)
+3. Lowercase, hyphenate remaining words
+4. Truncate to 40 chars total
+
+Examples:
+- `add user authentication` → `feat/user-authentication`
+- `fix payment webhook timeout` → `fix/payment-webhook-timeout`
+- `refactor database layer` → `refactor/database-layer`
+- `update dependencies` → `chore/dependencies`
+
+**Step 2: Ask user to confirm or customize**
+
+Use AskUserQuestion:
 ```
-2. Ensure brain.db is accessible from the worktree (symlink):
+Branch name for this worktree?
+  a) feat/user-authentication (Recommended)
+  b) Enter custom name
+```
+
+**Step 3: Multi-repo check**
+
+Query brain.db for linked repos:
 ```bash
+sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key = 'linked_repos';" 2>/dev/null
+```
+
+If linked repos exist, ask which repos need this worktree (AskUserQuestion):
+```
+Linked repos detected. Create worktree in:
+  a) This repo only (Recommended)
+  b) This repo + [linked-repo-name]
+  c) All linked repos
+```
+
+**Step 4: Create worktree(s)**
+
+For the current repo:
+```bash
+git worktree add .shipfast/worktrees/[name] -b [branch-name]
 mkdir -p .shipfast/worktrees/[name]/.shipfast
 ln -sf "$(pwd)/.shipfast/brain.db" .shipfast/worktrees/[name]/.shipfast/brain.db
 ```
-3. Store metadata in brain.db:
+
+For each selected linked repo:
 ```bash
-sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('worktree:[name]', 'worktree', '[name]', '{\"status\":\"active\",\"branch\":\"sf/[name]\",\"path\":\".shipfast/worktrees/[name]\",\"created\":\"[timestamp]\"}', 1, strftime('%s', 'now'));"
+git -C [linked-path] worktree add [linked-path]/.shipfast/worktrees/[name] -b [branch-name]
 ```
-4. Report:
+
+**Step 5: Store metadata**
+```bash
+sqlite3 .shipfast/brain.db "INSERT OR REPLACE INTO context (id, scope, key, value, version, updated_at) VALUES ('worktree:[name]', 'worktree', '[name]', '{\"status\":\"active\",\"branch\":\"[branch-name]\",\"path\":\".shipfast/worktrees/[name]\",\"repos\":[\".\"],\"created\":\"[timestamp]\"}', 1, strftime('%s', 'now'));"
 ```
-Worktree [name] created.
-  Branch: sf/[name]
+
+**Step 6: Report**
+```
+Worktree created.
+  Name:   [name]
+  Branch: [branch-name]
   Path:   .shipfast/worktrees/[name]/
 
 To work in this worktree:
@@ -75,6 +133,120 @@ sqlite3 -json .shipfast/brain.db "SELECT id, description, status FROM tasks WHER
 ```
 Show: uncommitted changes, recent commits, and pending tasks for this worktree.
 
+### check [name]
+
+Structured migration audit comparing worktree branch (or current branch) against the default branch.
+
+If `[name]` is provided, check that worktree's branch. If omitted, check the current branch.
+
+**Step 1: Resolve branches**
+```bash
+# Get default branch from brain.db (falls back to 'main')
+DEFAULT=$(sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key='default_branch';" 2>/dev/null)
+[ -z "$DEFAULT" ] && DEFAULT="main"
+
+# Get worktree's branch
+if [name] provided:
+  BRANCH=$(sqlite3 -json .shipfast/brain.db "SELECT value FROM context WHERE key='[name]' AND scope='worktree';" | parse branch)
+else:
+  BRANCH=$(git branch --show-current)
+fi
+```
+
+**Step 2: Get changed files**
+```bash
+git diff $DEFAULT...$BRANCH --diff-filter=D --name-only   # deleted files
+git diff $DEFAULT...$BRANCH --diff-filter=A --name-only   # added files
+git diff $DEFAULT...$BRANCH --diff-filter=M --name-only   # modified files
+```
+
+**Step 3: Extract removed symbols**
+
+For each deleted or modified file, compare the default branch version vs worktree version:
+```bash
+git show $DEFAULT:<file>    # main's version
+git show $BRANCH:<file>     # worktree's version (may not exist if deleted)
+```
+
+Extract exported symbols from main's version:
+- Functions: `export function NAME`, `export const NAME =`, `module.exports.NAME`
+- Types: `export type NAME`, `export interface NAME`
+- Classes: `export class NAME`
+- Fields in types/interfaces: lines inside `interface X { ... }` or `type X = { ... }`
+
+Check which of these are absent from worktree's version.
+
+**Step 4: Classify each removed symbol**
+
+For each symbol removed from main:
+
+1. **Search worktree for the symbol name** (was it moved/renamed?):
+```bash
+grep -rl "SYMBOL_NAME" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" .
+```
+   - Found in a DIFFERENT file → **MIGRATED** (show `old_path → new_path`)
+
+2. **Check consumers via brain.db**:
+```bash
+sqlite3 -json .shipfast/brain.db "
+  SELECT REPLACE(source, 'file:', '') as consumer
+  FROM edges
+  WHERE target LIKE '%SYMBOL_NAME%'
+  AND kind IN ('imports', 'calls', 'depends')
+"
+```
+   - Has consumers AND not found elsewhere → **MISSING** (show consumers)
+   - Zero consumers AND not found elsewhere → **SAFELY REMOVED**
+
+**Step 5: Detect shape changes**
+
+For modified files that still exist in both branches:
+- Extract type/interface field lists from both versions
+- Compare fields: which were added, which were removed
+- For removed fields, check consumers → **MODIFIED** with consumer count
+
+**Step 6: Collect additions**
+
+All symbols in added files → **ADDED**
+
+**Step 7: Format report**
+```
+Migration Audit: [BRANCH] vs [DEFAULT]
+==========================================
+
+MIGRATED (moved/renamed — present in both)
+  ✓ symbolName()             old/path.ts → new/path.ts
+  ✓ TypeName                 old/types.ts → new/types.ts
+
+MISSING (removed but still has consumers — ACTION NEEDED)
+  ✗ symbolName()             was in: src/file.ts
+                             consumers: src/a.ts, src/b.ts
+  ✗ Type.fieldName           was in: src/types.ts
+                             consumers: src/c.ts
+
+SAFELY REMOVED (removed, zero consumers)
+  ○ oldHelper()              was in: src/utils.ts
+  ○ TempType                 was in: src/types.ts
+
+MODIFIED (shape changed — REVIEW NEEDED)
+  ~ TypeName                 [DEFAULT]: N fields → [BRANCH]: M fields
+                             removed fields: fieldA, fieldB
+                             consumers to update: K files
+  ~ functionName()           signature changed
+                             consumers to update: K files
+
+ADDED (new in this branch)
+  + NewSymbol                src/new-file.ts
+  + AnotherSymbol            src/another.ts
+
+Summary
+  Migrated:       N
+  Missing:        N  ← ACTION NEEDED
+  Safely removed: N
+  Modified:       N  ← REVIEW NEEDED
+  Added:          N
+```
+
 ### complete <name>
 1. Check for uncommitted changes:
 ```bash
@@ -82,22 +254,49 @@ git -C .shipfast/worktrees/[name] status --porcelain
 ```
 If dirty, warn: "Worktree has uncommitted changes. Commit or stash first."
 
-2. Ask: "Merge sf/[name] into main and remove worktree? [y/n]"
-
-3. If yes:
-```bash
-git checkout main
-git merge sf/[name]
-git worktree remove .shipfast/worktrees/[name]
-git branch -d sf/[name]
+2. **Auto-run migration audit** before merging:
+Run the `check` steps above. If MISSING items found, warn:
+```
+Warning: [N] missing items with active consumers. Merge anyway?
+  a) Yes, merge (I handled these separately)
+  b) No, go back and fix
 ```
 
-4. Update brain.db:
+3. Get the default branch:
+```bash
+DEFAULT=$(sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key='default_branch';" 2>/dev/null)
+[ -z "$DEFAULT" ] && DEFAULT="main"
+```
+
+4. Ask: "Merge [branch] into $DEFAULT and remove worktree? [y/n]"
+
+5. If yes, also check multi-repo:
+```bash
+REPOS=$(sqlite3 .shipfast/brain.db "SELECT value FROM context WHERE id='worktree:[name]';" | parse repos)
+```
+
+For current repo:
+```bash
+git checkout $DEFAULT
+git merge [branch-name]
+git worktree remove .shipfast/worktrees/[name]
+git branch -d [branch-name]
+```
+
+For each linked repo in metadata:
+```bash
+git -C [linked-path] checkout $DEFAULT
+git -C [linked-path] merge [branch-name]
+git -C [linked-path] worktree remove [linked-path]/.shipfast/worktrees/[name]
+git -C [linked-path] branch -d [branch-name]
+```
+
+6. Update brain.db:
 ```bash
 sqlite3 .shipfast/brain.db "UPDATE context SET value = replace(value, '\"active\"', '\"complete\"'), updated_at = strftime('%s', 'now') WHERE id = 'worktree:[name]';"
 ```
 
-5. Report: `Worktree [name] merged into main and removed.`
+7. Report: `Worktree [name] merged into $DEFAULT and removed.`
 
 </process>
 

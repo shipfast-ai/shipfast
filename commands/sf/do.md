@@ -303,6 +303,35 @@ If brain.db has requirements for this phase:
 2. Mark as done/pending based on verification results
 3. Report coverage: "Requirements: N/M covered"
 
+### Branch Audit (automatic when on non-default branch)
+
+Runs automatically — no flag needed. Skipped when on the default branch.
+
+1. Get current branch and default branch:
+```bash
+CURRENT=$(git branch --show-current)
+DEFAULT=$(sqlite3 .shipfast/brain.db "SELECT value FROM config WHERE key='default_branch';" 2>/dev/null)
+[ -z "$DEFAULT" ] && DEFAULT="main"
+```
+
+2. If `$CURRENT` ≠ `$DEFAULT`, run a compact migration audit:
+   - `git diff $DEFAULT...$CURRENT --diff-filter=D --name-only` → deleted files
+   - For each deleted/modified file, extract removed exports/functions/types
+   - Cross-reference with brain.db edges to find consumers of removed items
+   - Search codebase for renamed/moved symbols
+
+3. Append to verification report (compact format):
+```
+Branch audit ($CURRENT vs $DEFAULT):
+  Migrated: 4 | Missing: 1 (validateToken — 2 consumers) | Safe: 2 | Modified: 1
+```
+
+4. If any **MISSING** items (removed but still have consumers):
+   - Flag as WARNING in verification score
+   - List each: `WARNING: [symbol] removed but consumed by [files]`
+
+For full structured report, run `/sf-worktree check`.
+
 ---
 
 ## STEP 8: LEARN

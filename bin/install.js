@@ -240,7 +240,37 @@ function cmdInit() {
       fs.writeFileSync(gi, '# ShipFast brain\n.shipfast/\n');
     }
 
+    // Detect and store default branch
+    let defaultBranch = 'main';
+    try {
+      // Try to detect from remote HEAD
+      const remoteHead = safeRun('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
+        cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+      if (remoteHead) defaultBranch = remoteHead.replace('refs/remotes/origin/', '');
+    } catch {
+      // Fallback: check which of main/master exists
+      try {
+        safeRun('git', ['rev-parse', '--verify', 'main'], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+        defaultBranch = 'main';
+      } catch {
+        try {
+          safeRun('git', ['rev-parse', '--verify', 'master'], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+          defaultBranch = 'master';
+        } catch { /* keep 'main' as default */ }
+      }
+    }
+
+    // Store in brain.db
+    const dbPath = path.join(cwd, '.shipfast', 'brain.db');
+    try {
+      safeRun('sqlite3', [dbPath, `INSERT OR REPLACE INTO config (key, value) VALUES ('default_branch', '${defaultBranch}');`], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+    } catch { /* brain.db might not have config table yet on first run */ }
+
     console.log(`\n${dim}Brain: .shipfast/brain.db${reset}`);
+    console.log(`${dim}Default branch: ${defaultBranch}${reset}`);
     console.log(`${dim}Use /sf-do in your AI tool.${reset}\n`);
   } catch (err) {
     console.log(`${red}Failed: ${err.message.slice(0, 100)}${reset}\n`);
@@ -334,7 +364,32 @@ function cmdLink() {
     stdio: ['pipe', 'pipe', 'pipe']
   });
 
+  // Detect and store default branch for the linked repo
+  const repoName = path.basename(resolved);
+  let linkedDefault = 'main';
+  try {
+    const remoteHead = safeRun('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], {
+      cwd: resolved, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+    }).trim();
+    if (remoteHead) linkedDefault = remoteHead.replace('refs/remotes/origin/', '');
+  } catch {
+    try {
+      safeRun('git', ['rev-parse', '--verify', 'main'], { cwd: resolved, stdio: ['pipe', 'pipe', 'pipe'] });
+      linkedDefault = 'main';
+    } catch {
+      try {
+        safeRun('git', ['rev-parse', '--verify', 'master'], { cwd: resolved, stdio: ['pipe', 'pipe', 'pipe'] });
+        linkedDefault = 'master';
+      } catch {}
+    }
+  }
+
+  safeRun('sqlite3', [localBrain, `INSERT OR REPLACE INTO config (key, value) VALUES ('default_branch:${repoName}', '${linkedDefault}');`], {
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
   console.log(`${green}Linked: ${resolved}${reset}`);
+  console.log(`${dim}Default branch for ${repoName}: ${linkedDefault}${reset}`);
   console.log(`${dim}Agents will now query both local and linked brains.${reset}`);
   console.log(`${dim}Total linked repos: ${links.length}${reset}\n`);
 }

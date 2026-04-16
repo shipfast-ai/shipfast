@@ -284,7 +284,7 @@ If other files use it → update them or keep it. **NEVER remove without checkin
 |---|---|
 | `/sf-project <desc>` | Decompose large project into phases with REQ-ID tracing + 4 parallel researchers |
 | `/sf-milestone [complete\|new]` | Complete current milestone or start next version |
-| `/sf-worktree <action>` | Parallel worktrees: create, list, switch, status, complete |
+| `/sf-worktree <action>` | Parallel worktrees: create (smart naming + multi-repo), list, switch, status, check (migration audit), complete |
 
 ### Shipping
 

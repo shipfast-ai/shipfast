@@ -46,10 +46,11 @@ KNOWLEDGE
 
 PARALLEL WORK
   /sf-worktree list        Show all worktrees.
-  /sf-worktree create      Create worktree with isolated working directory + branch.
+  /sf-worktree create      Create worktree — suggests branch name, supports multi-repo.
   /sf-worktree switch      Show path to worktree (cd into it).
   /sf-worktree status      Show uncommitted changes, commits, tasks for a worktree.
-  /sf-worktree complete    Merge worktree into main and remove it.
+  /sf-worktree check       Migration audit: migrated, missing, safe, modified, added.
+  /sf-worktree complete    Run audit, merge into default branch, remove worktree.
 
 CONFIG
   /sf-config               View or set model tiers and preferences.
