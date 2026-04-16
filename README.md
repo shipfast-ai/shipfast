@@ -4,7 +4,7 @@
 
 **Autonomous context-engineered development system with SQLite brain.**
 
-**5 agents. 20 commands. Per-task fresh context. 70-90% fewer tokens.**
+**5 agents. 20 commands. Per-task fresh context. 70-90% fewer tokens as the brain learns your codebase.**
 
 [![npm version](https://img.shields.io/npm/v/@shipfast-ai/shipfast)](https://www.npmjs.com/package/@shipfast-ai/shipfast)
 [![npm downloads](https://img.shields.io/npm/dw/@shipfast-ai/shipfast)](https://www.npmjs.com/package/@shipfast-ai/shipfast)
@@ -31,7 +31,7 @@ ShipFast fixes this with a **SQLite knowledge graph** that gives each agent fres
 
 - **SQLite brain** — queryable knowledge graph replaces markdown state files
 - **Fresh context per task** — each Builder agent starts clean, quality stays consistent
-- **3K-40K tokens per feature** — 70-90% less than typical AI dev workflows
+- **3K-40K tokens per feature** — 70% fewer on first use, 90% on repeat tasks as learnings accumulate
 - **Self-improving** — records patterns and decisions, gets cheaper over time
 - **Smart model selection** — dynamically picks haiku/sonnet/opus based on task + feedback loop
 - **Domain-aware questioning** — 6 domains, 20+ question templates, zero LLM cost
