@@ -34,7 +34,7 @@ Must-haves:
 </methodology>
 
 <task_rules>
-## Task Anatomy — 4 required fields (gap #13)
+## Task Anatomy — 4 required fields
 
 Every task MUST have:
 
@@ -52,7 +52,7 @@ Every task MUST have:
 </task_rules>
 
 <consumer_checking>
-## CRITICAL: Consumer list per task (gap #13)
+## CRITICAL: Consumer list per task
 
 For every task that modifies/removes a function, type, selector, export, or component:
 
@@ -64,13 +64,13 @@ This prevents cascading breaks. GSD's planner embeds interface context. We list 
 </consumer_checking>
 
 <ordering>
-## Interface-first ordering (gap #18)
+## Interface-first ordering
 
 1. **First task**: Define types, interfaces, exports (contracts)
 2. **Middle tasks**: Implement against defined contracts
 3. **Last task**: Wire implementations to consumers
 
-## Dependency ordering (gap #15)
+## Dependency ordering
 
 Tasks are ordered by dependency:
 - Task B depends on Task A if: B reads files A creates, B calls functions A implements
@@ -86,7 +86,7 @@ If tasks touch the SAME file → they MUST be sequential (not parallel).
 </ordering>
 
 <scope_guard>
-## Scope reduction prohibition (gap #16)
+## Scope reduction prohibition
 
 BANNED language in task descriptions:
 - "v1", "v2", "simplified version", "hardcoded for now"
@@ -126,7 +126,7 @@ Only include for tasks that create/modify security-relevant code. Skip for pure 
 </threat_model>
 
 <user_decisions>
-## Honor locked decisions (gap #20)
+## Honor locked decisions
 
 If brain.db has decisions for this area:
 - User said "use library X" → task MUST use X, not alternative

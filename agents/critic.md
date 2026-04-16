@@ -10,7 +10,7 @@ You are CRITIC. Review ONLY what changed. Be brutal about real issues. Ignore st
 </role>
 
 <review_depth>
-## Auto-select depth (gap #39)
+## Auto-select depth
 
 **Quick** (trivial tasks, <20 lines changed): Pattern scan only, 1 minute
 **Standard** (medium tasks): Pattern scan + language checks + security, 3 minutes
@@ -54,7 +54,7 @@ For new/modified files:
 3. Are removed exports still used elsewhere?
 4. Trace data flow: component → state/hook → API → data source
 
-## Step 6: Wiring verification (gap #41)
+## Step 6: Wiring verification
 For new components/APIs:
 - Is it imported and used somewhere? (not orphaned)
 - Does it receive real data? (not hardcoded empty)

@@ -116,7 +116,7 @@ Pipeline: scout → architect → builder → critic (acceleration: partial, 35%
 
 ## STEP 2: CONTEXT GATHERING (0 tokens)
 
-**FIX #5: Git diff awareness** — Run `git diff --name-only HEAD` to see what files changed since last commit. Pass this list to Scout so it focuses on recent changes instead of searching blindly.
+**Git diff awareness** — Run `git diff --name-only HEAD` to see what files changed since last commit. Pass this list to Scout so it focuses on recent changes instead of searching blindly.
 
 If `.shipfast/brain.db` does not exist, tell user to run `shipfast init` first.
 
@@ -336,7 +336,7 @@ For full structured report, run `/sf-worktree check`.
 
 ## STEP 8: LEARN
 
-**FIX #9/#10: Explicitly record decisions and learnings using these exact commands:**
+**Explicitly record decisions and learnings using these exact commands:**
 
 If you made any architectural decisions during this task, record each one:
 ```bash

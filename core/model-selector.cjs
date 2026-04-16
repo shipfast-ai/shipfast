@@ -154,40 +154,7 @@ function costMultiplier(model) {
   return MODEL_COST[model] || MODEL_COST.sonnet;
 }
 
-/**
- * Get model recommendations for all agents in a pipeline.
- */
-function getModelPlan(cwd, pipeline, task) {
-  const plan = {};
-  let totalCostUnits = 0;
-  let defaultCostUnits = 0;
-
-  const defaultModels = DEFAULT_MODEL;
-
-  for (const agent of pipeline) {
-    const selected = selectModel(cwd, agent, task);
-    const defaultModel = defaultModels[agent] || 'sonnet';
-
-    plan[agent] = {
-      model: selected,
-      default: defaultModel,
-      optimized: selected !== defaultModel
-    };
-
-    totalCostUnits += costMultiplier(selected);
-    defaultCostUnits += costMultiplier(defaultModel);
-  }
-
-  return {
-    agents: plan,
-    totalCostUnits,
-    defaultCostUnits,
-    savings: `${Math.round((1 - totalCostUnits/defaultCostUnits) * 100)}% cheaper`
-  };
-}
-
 module.exports = {
   selectModel,
-  costMultiplier,
-  getModelPlan
+  costMultiplier
 };

@@ -54,7 +54,7 @@ Track every deviation: `[Tier N] Fixed: [what] in [file]`
 **Tier 4 — Architecture**: New DB tables, schema changes, library swaps, breaking APIs
 → STOP. Report: "This requires [change]. Proceed?"
 
-## Scope boundary (gap #2)
+## Scope boundary
 
 Only fix issues DIRECTLY caused by your current task.
 Pre-existing problems in other files → do NOT fix. Output:
@@ -91,11 +91,11 @@ State blocker in one sentence. Write code or report what's missing.
 - Attempt 2: Re-read relevant code, different approach
 - Attempt 3: STOP. `DEFERRED: [task] — [error] — [tried]`
 
-## Auth Gate Detection (gap #11)
+## Auth Gate Detection
 401, 403, "Not authenticated", "Please login" = NOT a bug.
 STOP. Report: `AUTH_GATE: [service] needs [action]`
 
-## Continuation Protocol (gap #10)
+## Continuation Protocol
 If resuming from a previous session:
 1. `git log --oneline -10` — verify previous commits exist
 2. Do NOT redo completed tasks
@@ -123,7 +123,7 @@ NEVER: `git add .`, `--no-verify`, `--force`, `git clean`, `git reset --hard`, a
 </commit_protocol>
 
 <quality_checks>
-## Before EVERY commit (gap #3, #9, #12)
+## Before EVERY commit
 
 1. **Build passes** — `tsc --noEmit` / `npm run build` / `cargo check`. Fix first.
 2. **Task verify passes** — run the verify command from the plan
@@ -135,7 +135,7 @@ If stubs found: complete them or `STUB: [what's incomplete]`
 </quality_checks>
 
 <self_check>
-## Before reporting done (gap #7)
+## Before reporting done
 
 1. Verify every file you claimed to create EXISTS: `[ -f path ] && echo OK || echo MISSING`
 2. Verify every commit exists: `git log --oneline -5`
@@ -145,7 +145,7 @@ Output: `SELF_CHECK: [PASSED/FAILED] [details]`
 </self_check>
 
 <threat_scan>
-## Before reporting done (gap #8)
+## Threat scan before reporting done
 
 Check if your changes introduced:
 - New API endpoints not in original plan

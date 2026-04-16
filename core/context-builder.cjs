@@ -110,65 +110,8 @@ function buildFullContext(cwd, { affectedFiles, phase, domain, agent }) {
   return parts.join('\n');
 }
 
-/**
- * Build context specifically for Scout agent (research phase).
- * Lighter than full context — just hot files + known patterns.
- */
-function buildScoutContext(cwd, { domain, intent }) {
-  const parts = [];
-
-  // Hot files (most changed = most likely relevant)
-  const hotFiles = brain.getHotFiles(cwd, 10);
-  if (hotFiles.length) {
-    parts.push('<hot_files>Most changed files:' + hotFiles.map(h =>
-      `\n${h.file_path} (${h.change_count} changes)`
-    ).join('') + '\n</hot_files>');
-  }
-
-  // Existing learnings (avoid re-discovering known issues)
-  if (domain) {
-    const learnings = brain.findLearnings(cwd, domain, 3);
-    if (learnings.length) {
-      parts.push('<known>' + learnings.map(l =>
-        `\n${l.pattern}: ${l.solution || l.problem}`
-      ).join('') + '\n</known>');
-    }
-  }
-
-  return parts.join('\n');
-}
-
-/**
- * Build context for Architect (planning phase).
- * Includes file signatures for scope estimation.
- */
-function buildArchitectContext(cwd, { affectedFiles, domain, scoutFindings }) {
-  const parts = [];
-
-  // Scout findings (already compact)
-  if (scoutFindings) {
-    parts.push(`<scout_findings>\n${scoutFindings.slice(0, 2000)}\n</scout_findings>`);
-  }
-
-  // File signatures for affected area
-  if (affectedFiles && affectedFiles.length) {
-    for (const file of affectedFiles.slice(0, 5)) {
-      const sigs = brain.getSignaturesForFile(cwd, file);
-      if (sigs.length) {
-        parts.push(`<file path="${file}">` + sigs.map(s =>
-          `\n  ${s.kind}: ${s.signature} (L${s.line_start})`
-        ).join('') + '\n</file>');
-      }
-    }
-  }
-
-  return parts.join('\n');
-}
-
 module.exports = {
   buildContext,
   buildMinimalContext,
-  buildFullContext,
-  buildScoutContext,
-  buildArchitectContext
+  buildFullContext
 };

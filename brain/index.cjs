@@ -10,9 +10,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { DB_NAME } = require('../core/constants.cjs');
 
-// ============================================================
-// Database initialization
-// ============================================================
+// --- Database initialization ---
 
 function getBrainPath(cwd) {
   return path.join(cwd || process.cwd(), DB_NAME);
@@ -40,9 +38,7 @@ function brainExists(cwd) {
   return fs.existsSync(getBrainPath(cwd));
 }
 
-// ============================================================
-// Query helpers (all zero-LLM-cost)
-// ============================================================
+// --- Query helpers ---
 
 function query(cwd, sql) {
   const dbPath = getBrainPath(cwd);
@@ -67,9 +63,7 @@ function run(cwd, sql) {
   execFileSync('sqlite3', [dbPath, sql], { stdio: ['pipe', 'pipe', 'pipe'] });
 }
 
-// ============================================================
-// Codebase graph operations
-// ============================================================
+// --- Codebase graph ---
 
 function upsertNode(cwd, node) {
   const { id, kind, name, file_path, line_start, line_end, signature, hash, metadata } = node;
@@ -114,9 +108,7 @@ function getStaleNodes(cwd) {
   return query(cwd, `SELECT id, file_path, hash FROM nodes WHERE kind = 'file'`);
 }
 
-// ============================================================
 // Context operations (replaces STATE.md / REQUIREMENTS.md)
-// ============================================================
 
 function setContext(cwd, scope, key, value) {
   const val = typeof value === 'string' ? value : JSON.stringify(value);
@@ -136,9 +128,7 @@ function getAllContext(cwd, scope) {
   return query(cwd, `SELECT key, value FROM context WHERE scope = '${esc(scope)}'`);
 }
 
-// ============================================================
 // Decision operations
-// ============================================================
 
 function addDecision(cwd, { question, decision, reasoning, phase, tags }) {
   run(cwd, `INSERT INTO decisions (question, decision, reasoning, phase, tags)
@@ -150,9 +140,7 @@ function getDecisions(cwd, phase) {
   return query(cwd, `SELECT question, decision, reasoning, phase FROM decisions ${where} ORDER BY created_at DESC LIMIT 20`);
 }
 
-// ============================================================
 // Task operations
-// ============================================================
 
 function addTask(cwd, task) {
   const { id, phase, description, plan_text } = task;
@@ -172,9 +160,7 @@ function getTasks(cwd, phase) {
   return query(cwd, `SELECT * FROM tasks ${where} ORDER BY created_at`);
 }
 
-// ============================================================
 // Learnings (self-improving memory)
-// ============================================================
 
 function addLearning(cwd, { pattern, problem, solution, domain, source }) {
   run(cwd, `INSERT INTO learnings (pattern, problem, solution, domain, source)
@@ -195,9 +181,7 @@ function pruneOldLearnings(cwd, daysOld = 30) {
   run(cwd, `DELETE FROM learnings WHERE confidence < 0.3 AND times_used = 0 AND created_at < strftime('%s', 'now') - ${daysOld * 86400}`);
 }
 
-// ============================================================
 // Checkpoints
-// ============================================================
 
 function createCheckpoint(cwd, id, description) {
   let gitRef = '';
@@ -220,9 +204,7 @@ function rollbackCheckpoint(cwd, id) {
   run(cwd, `DELETE FROM checkpoints WHERE id = '${esc(id)}'`);
 }
 
-// ============================================================
 // Token budget
-// ============================================================
 
 function getTokenBudget(cwd) {
   const rows = query(cwd, `SELECT value FROM config WHERE key = 'token_budget'`);
@@ -243,9 +225,7 @@ function getTokensByAgent(cwd, sessionId) {
   return query(cwd, `SELECT agent, SUM(input_tokens + output_tokens) as total FROM token_usage WHERE session_id = '${esc(sessionId)}' GROUP BY agent`);
 }
 
-// ============================================================
 // Hot files (git-derived)
-// ============================================================
 
 function updateHotFiles(cwd, limit = 100) {
   try {
@@ -266,9 +246,7 @@ function getHotFiles(cwd, limit = 20) {
   return query(cwd, `SELECT file_path, change_count FROM hot_files ORDER BY change_count DESC LIMIT ${limit}`);
 }
 
-// ============================================================
 // Config
-// ============================================================
 
 function getConfig(cwd, key) {
   const rows = query(cwd, `SELECT value FROM config WHERE key = '${esc(key)}'`);
@@ -279,9 +257,7 @@ function setConfig(cwd, key, value) {
   run(cwd, `INSERT OR REPLACE INTO config (key, value) VALUES ('${esc(key)}', '${esc(String(value))}')`);
 }
 
-// ============================================================
 // Context builder for agents (the key token-saving function)
-// ============================================================
 
 function buildAgentContext(cwd, { agent, taskDescription, affectedFiles, phase, domain }) {
   const parts = [];
@@ -324,18 +300,14 @@ function buildAgentContext(cwd, { agent, taskDescription, affectedFiles, phase, 
   return parts.join('\n\n');
 }
 
-// ============================================================
 // Model Performance (feedback loop)
-// ============================================================
 
 function recordModelOutcome(cwd, { agent, model, domain, taskId, outcome }) {
   run(cwd, `INSERT INTO model_performance (agent, model, domain, task_id, outcome)
     VALUES ('${esc(agent)}', '${esc(model)}', '${esc(domain || '')}', '${esc(taskId || '')}', '${esc(outcome)}')`);
 }
 
-// ============================================================
 // Seeds (forward ideas captured during work)
-// ============================================================
 
 function addSeed(cwd, { idea, sourceTask, domain, priority }) {
   run(cwd, `INSERT INTO seeds (idea, source_task, domain, priority)
@@ -359,9 +331,7 @@ function dismissSeed(cwd, seedId) {
   run(cwd, `UPDATE seeds SET status = 'dismissed' WHERE id = ${parseInt(seedId)}`);
 }
 
-// ============================================================
 // Utils
-// ============================================================
 
 function esc(s) {
   if (s == null) return '';
@@ -410,46 +380,4 @@ module.exports = {
   getSeeds,
   promoteSeed,
   dismissSeed,
-  // Requirements
-  addRequirement,
-  getRequirements,
-  updateRequirement,
-  getRequirementCoverage
 };
-
-// ============================================================
-// Requirements (REQ-ID tracing)
-// ============================================================
-
-function addRequirement(cwd, { id, category, description, priority, phase }) {
-  run(cwd, `INSERT OR REPLACE INTO requirements (id, category, description, priority, phase)
-    VALUES ('${esc(id)}', '${esc(category)}', '${esc(description)}', '${esc(priority || 'v1')}', '${esc(phase || '')}')`);
-}
-
-function getRequirements(cwd, opts = {}) {
-  const conditions = [];
-  if (opts.phase) conditions.push(`phase = '${esc(opts.phase)}'`);
-  if (opts.category) conditions.push(`category = '${esc(opts.category)}'`);
-  if (opts.status) conditions.push(`status = '${esc(opts.status)}'`);
-  if (opts.priority) conditions.push(`priority = '${esc(opts.priority)}'`);
-  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  return query(cwd, `SELECT * FROM requirements ${where} ORDER BY category, id`);
-}
-
-function updateRequirement(cwd, id, updates) {
-  const sets = Object.entries(updates).map(([k, v]) => `${k} = '${esc(String(v))}'`).join(', ');
-  run(cwd, `UPDATE requirements SET ${sets} WHERE id = '${esc(id)}'`);
-}
-
-function getRequirementCoverage(cwd) {
-  const total = query(cwd, "SELECT COUNT(*) as c FROM requirements WHERE priority = 'v1'");
-  const mapped = query(cwd, "SELECT COUNT(*) as c FROM requirements WHERE priority = 'v1' AND phase IS NOT NULL AND phase != ''");
-  const done = query(cwd, "SELECT COUNT(*) as c FROM requirements WHERE priority = 'v1' AND status = 'done'");
-  const verified = query(cwd, "SELECT COUNT(*) as c FROM requirements WHERE priority = 'v1' AND verified = 1");
-  return {
-    total: total[0] ? total[0].c : 0,
-    mapped: mapped[0] ? mapped[0].c : 0,
-    done: done[0] ? done[0].c : 0,
-    verified: verified[0] ? verified[0].c : 0
-  };
-}

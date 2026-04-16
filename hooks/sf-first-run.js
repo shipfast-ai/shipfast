@@ -2,7 +2,7 @@
 /**
  * ShipFast First-Run Hook — PreToolUse
  *
- * FIX #3: Exits immediately for non-Skill tools (near-zero overhead).
+ * Exits immediately for non-Skill tools (near-zero overhead).
  * Only injects brain indexing instruction when:
  * - Tool is Skill (sf-* command)
  * - brain.db doesn't exist for this repo
@@ -24,7 +24,7 @@ process.stdin.on('end', () => {
   try {
     const data = JSON.parse(input);
 
-    // FIX #3: Fast exit for non-Skill tools (99% of calls)
+    // Fast exit for non-Skill tools (99% of calls)
     if ((data.tool_name || '') !== 'Skill') process.exit(0);
 
     const cwd = data.cwd || process.cwd();

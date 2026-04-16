@@ -191,7 +191,7 @@ function printDone(count) {
   console.log(`  ${cyan}shipfast init${reset}        Index your codebase\n`);
   console.log(`${bold}In your AI tool:${reset}`);
   console.log(`  ${cyan}/sf-do${reset} <task>     Describe what you want`);
-  console.log(`  ${cyan}/sf-help${reset}          Show all 12 commands\n`);
+  console.log(`  ${cyan}/sf-help${reset}          Show all commands\n`);
 }
 
 // ============================================================
@@ -215,7 +215,7 @@ function cmdInit() {
 
   const brainExists = fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'));
 
-  // FIX #8: --fresh flag
+  // --fresh flag: clear existing brain for full reindex
   if (fresh && brainExists) {
     fs.unlinkSync(path.join(cwd, '.shipfast', 'brain.db'));
     console.log('Cleared existing brain.db');
@@ -494,7 +494,7 @@ function cmdUninstall() {
       }
       // Clean settings.json hooks (#18: remove empty arrays too)
       cleanSettings(dir);
-      // FIX #7: Clean instruction files (CLAUDE.md, AGENTS.md, etc.)
+      // Clean instruction files (CLAUDE.md, AGENTS.md, etc.)
       cleanInstructionFile(path.join(dir, 'CLAUDE.md'));
       cleanInstructionFile(path.join(dir, 'AGENTS.md'));
       cleanInstructionFile(path.join(dir, 'copilot-instructions.md'));
@@ -615,7 +615,7 @@ function writeMcpConfig(dir) {
 function writeInstruction(filePath) {
   const marker = '<!-- ShipFast -->';
   const close = '<!-- /ShipFast -->';
-  const block = `${marker}\n## ShipFast\n- \`/sf-do <task>\` — Describe what you want.\n- \`/sf-help\` — Show all 12 commands.\n- Brain: \`.shipfast/brain.db\`\n${close}`;
+  const block = `${marker}\n## ShipFast\n- \`/sf-do <task>\` — Describe what you want.\n- \`/sf-help\` — Show all commands.\n- Brain: \`.shipfast/brain.db\`\n${close}`;
 
   let content = '';
   if (fs.existsSync(filePath)) {
@@ -628,7 +628,7 @@ function writeInstruction(filePath) {
   fs.writeFileSync(filePath, content);
 }
 
-// FIX #7: Remove ShipFast block from instruction files during uninstall
+// Remove ShipFast block from instruction files during uninstall
 function cleanInstructionFile(filePath) {
   if (!fs.existsSync(filePath)) return;
   try {
@@ -645,7 +645,7 @@ function cleanInstructionFile(filePath) {
   } catch {}
 }
 
-// FIX #17: CLI status command — show installed runtimes + version + brain status
+// CLI status command — show installed runtimes + version + brain status
 function cmdStatus() {
   console.log(`${bold}Installed runtimes:${reset}\n`);
   let count = 0;

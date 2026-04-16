@@ -137,7 +137,7 @@ function detectBuildCommand(cwd) {
 }
 
 // ============================================================
-// 3-Level Artifact Validation (gap #40)
+// 3-Level Artifact Validation
 // ============================================================
 
 /**
@@ -177,7 +177,7 @@ function verifyArtifact3Level(cwd, filePath) {
 }
 
 // ============================================================
-// Data-Flow Tracing (gap #41)
+// Data-Flow Tracing
 // ============================================================
 
 /**
@@ -214,7 +214,7 @@ function verifyDataFlow(cwd, filePath) {
 }
 
 // ============================================================
-// Enhanced Stub Detection (gap #42)
+// Enhanced Stub Detection
 // ============================================================
 
 function verifyNoStubsDeep(cwd) {
@@ -255,7 +255,7 @@ function verifyNoStubsDeep(cwd) {
           }
         }
       }
-    } catch {}
+    } catch { /* skip unreadable files */ }
   }
 
   return {
@@ -398,17 +398,9 @@ function verifyWithAutoFix(cwd, criteria, executeFixFn) {
   };
 }
 
-// ============================================================
-// TDD verification
-// ============================================================
-
 /**
  * Verify TDD commit sequence: test(...) → feat(...) → optional refactor(...)
- */
-/**
- * Verify TDD commit sequence: test(...) → feat(...) → optional refactor(...)
- * Enhanced: also checks that test commits contain only test files and feat commits
- * contain only implementation files.
+ * Also checks that test commits contain only test files and feat commits only implementation files.
  */
 function verifyTddSequence(cwd, numCommits) {
   try {

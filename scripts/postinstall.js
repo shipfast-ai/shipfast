@@ -5,7 +5,7 @@
  * Only runs when installed globally (npm i -g). Skips for local project deps.
  */
 
-// FIX #4: Only run auto-install when installed globally
+// Only run auto-install when installed globally
 const isGlobal = process.env.npm_config_global === 'true' ||
   (process.env.npm_lifecycle_event === 'postinstall' && !process.env.INIT_CWD);
 

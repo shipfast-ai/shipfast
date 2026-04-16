@@ -146,7 +146,6 @@ function withRetry(cwd, task, executeFn, maxAttempts = 3) {
       }
 
       lastError = result.error || new Error('Task failed without error details');
-      totalTokens += result.tokensUsed || 0;
 
     } catch (err) {
       lastError = err;
