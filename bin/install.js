@@ -187,7 +187,7 @@ function installFor(key, runtime) {
 }
 
 function printDone(count) {
-  console.log(`\n${green}${bold}Installed for ${count} runtime${count > 1 ? 's' : ''}!${reset}\n`);
+  console.log(`\n${green}${bold}ShipFast v${pkg.version} installed for ${count} runtime${count > 1 ? 's' : ''}!${reset}\n`);
   console.log(`${bold}Next:${reset}`);
   console.log(`  ${cyan}cd your-project${reset}`);
   console.log(`  ${cyan}shipfast init${reset}        Index your codebase\n`);
@@ -801,7 +801,7 @@ function writeMcpConfig(dir) {
 function writeInstruction(filePath) {
   const marker = '<!-- ShipFast -->';
   const close = '<!-- /ShipFast -->';
-  const block = `${marker}\n## ShipFast\nThis repo uses ShipFast. Brain: .shipfast/brain.db\n\nFor any task: \`/sf-do <task>\` (recommended — full pipeline with fresh context per task).\nFor quick edits: check brain_decisions and brain_learnings MCP tools before changes.\n\nContext: ShipFast saves progress to brain.db automatically.\nIf context runs low, run \`/sf-resume\` in a new session — all state persists.\nRun \`/sf-help\` for all 20 commands.\n${close}`;
+  const block = `${marker}\n## ShipFast\nThis repo uses ShipFast. Brain: .shipfast/brain.db\n\nFor any task: \`/sf-do <task>\` (recommended — full pipeline with fresh context per task).\nFor new projects: \`/sf-project <description>\` — runs discovery first (10-category questioning until the project is fully understood).\nFor quick edits: check brain_decisions and brain_learnings MCP tools before changes.\n\nContext: ShipFast saves progress to brain.db automatically.\nIf context runs low, run \`/sf-resume\` in a new session — all state persists.\nRun \`/sf-help\` for all 20 commands.\n${close}`;
 
   let content = '';
   if (fs.existsSync(filePath)) {
