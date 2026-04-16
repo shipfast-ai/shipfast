@@ -148,7 +148,7 @@ function installFor(key, runtime) {
   // Copy commands
   const cmdDir = path.join(dir, 'commands', 'sf');
   fs.mkdirSync(cmdDir, { recursive: true });
-  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','workstream.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md'])
+  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','worktree.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md'])
     copy('commands/sf/' + f, path.join(cmdDir, f));
 
   // Copy hooks

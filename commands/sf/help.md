@@ -45,10 +45,11 @@ KNOWLEDGE
   /sf-map                  Generate codebase report from brain.db.
 
 PARALLEL WORK
-  /sf-workstream list      Show all workstreams.
-  /sf-workstream create    Create namespaced workstream with branch.
-  /sf-workstream switch    Switch active workstream.
-  /sf-workstream complete  Complete and merge workstream.
+  /sf-worktree list        Show all worktrees.
+  /sf-worktree create      Create worktree with isolated working directory + branch.
+  /sf-worktree switch      Show path to worktree (cd into it).
+  /sf-worktree status      Show uncommitted changes, commits, tasks for a worktree.
+  /sf-worktree complete    Merge worktree into main and remove it.
 
 CONFIG
   /sf-config               View or set model tiers and preferences.
