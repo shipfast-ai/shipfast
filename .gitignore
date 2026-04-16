@@ -39,3 +39,4 @@ vendor/
 *.log
 .cache/
 tmp/
+personal/
