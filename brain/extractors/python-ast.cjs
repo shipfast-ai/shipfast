@@ -45,17 +45,28 @@ function extract(content, filePath, ctx) {
 
   const importedSymbols = {};
   const sameFileFns = new Map();
+  const sameFileClasses = new Set();
+  const classMethods = new Map();    // `ClassName.method` → method node id
+  const localTypes = new Map();       // var → ClassName
   const pendingCalls = [];
+  const pendingMethodCalls = [];      // [{callerId, receiverVar, method}]
 
   function visit(n, currentFn) {
     const t = n.type;
 
     if (t === 'function_definition') {
       const node = handleFunction(n);
+      if (node) {
+        const enclosing = findEnclosingClass(n);
+        const cnn = enclosing && enclosing.childForFieldName && enclosing.childForFieldName('name');
+        if (cnn) classMethods.set(`${cnn.text}.${node.name}`, node.id);
+      }
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), node ? node.id : currentFn);
       return;
     }
     if (t === 'class_definition') {
+      const nn = n.childForFieldName && n.childForFieldName('name');
+      if (nn) sameFileClasses.add(nn.text);
       handleClass(n);
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
       return;
@@ -64,6 +75,8 @@ function extract(content, filePath, ctx) {
       handleFromImport(n);
     } else if (t === 'call') {
       handleCall(n, currentFn);
+    } else if (t === 'assignment') {
+      handleAssignment(n, currentFn);
     }
 
     for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
@@ -132,11 +145,64 @@ function extract(content, filePath, ctx) {
     }
   }
 
+  function findEnclosingClass(n) {
+    let p = n.parent;
+    while (p) {
+      if (p.type === 'class_definition') return p;
+      p = p.parent;
+    }
+    return null;
+  }
+
   function handleCall(n, currentFn) {
     if (!currentFn) return;
     const fn = n.childForFieldName ? n.childForFieldName('function') : n.child(0);
-    if (!fn || fn.type !== 'identifier') return;
-    pendingCalls.push({ callerId: currentFn, calleeName: fn.text });
+    if (!fn) return;
+    if (fn.type === 'identifier') {
+      pendingCalls.push({ callerId: currentFn, calleeName: fn.text });
+      return;
+    }
+    if (fn.type === 'attribute') {
+      // `obj.method()` — resolve obj's class if it's a tracked local.
+      const object = fn.childForFieldName && fn.childForFieldName('object');
+      const attr = fn.childForFieldName && fn.childForFieldName('attribute');
+      if (object && object.type === 'identifier' && attr) {
+        pendingMethodCalls.push({
+          callerId: currentFn,
+          receiverVar: object.text,
+          method: attr.text,
+        });
+      }
+    }
+  }
+
+  function handleAssignment(n, currentFn) {
+    // `x = SomeClass()` → track local type, resolve `new_expression`-like usage.
+    // `self.field = X` inside a method → mutates edge.
+    const left = n.childForFieldName && n.childForFieldName('left');
+    const right = n.childForFieldName && n.childForFieldName('right');
+    if (!left) return;
+
+    // self.x = ... / obj.x = ...  → mutates
+    if (currentFn && left.type === 'attribute') {
+      const object = left.childForFieldName && left.childForFieldName('object');
+      const attr = left.childForFieldName && left.childForFieldName('attribute');
+      if (object && attr) {
+        if (object.type === 'identifier' && object.text === 'self') {
+          emit(currentFn, `variable:${filePath}:self.${attr.text}`, 'mutates');
+        } else if (object.type === 'identifier') {
+          emit(currentFn, `variable:${filePath}:${object.text}.${attr.text}`, 'mutates');
+        }
+      }
+    }
+
+    // x = Foo() → localTypes[x] = 'Foo' (only for simple calls to identifier)
+    if (left.type === 'identifier' && right && right.type === 'call') {
+      const fn = right.childForFieldName && right.childForFieldName('function');
+      if (fn && fn.type === 'identifier') {
+        localTypes.set(left.text, fn.text);
+      }
+    }
   }
 
   visit(root, null);
@@ -152,6 +218,14 @@ function extract(content, filePath, ctx) {
     const targetFile = importedSymbols[calleeName];
     if (targetFile) { emit(callerId, `fn:${targetFile}:${calleeName}`, 'calls'); continue; }
     emit(callerId, `unresolved:${calleeName}`, 'calls');
+  }
+
+  // Method dispatch — obj.method() where obj = Foo() (same-file classes).
+  for (const { callerId, receiverVar, method } of pendingMethodCalls) {
+    const cls = localTypes.get(receiverVar);
+    if (!cls || !sameFileClasses.has(cls)) continue;
+    const methodId = classMethods.get(`${cls}.${method}`);
+    if (methodId && methodId !== callerId) emit(callerId, methodId, 'calls');
   }
 
   return { nodes, edges };
