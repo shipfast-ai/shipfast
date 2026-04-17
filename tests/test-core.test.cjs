@@ -1397,3 +1397,177 @@ describe('cmdInstall packaging', () => {
     }
   });
 });
+
+// ============================================================
+// v1.9.0 — session persistence, cited findings, task CRUD
+// Exercise the real MCP handlers against a freshly-initialized brain.
+// ============================================================
+
+// Helper: set SHIPFAST_CWD so the MCP module's query/run target a tmp brain.db.
+// Note: SHIPFAST_CWD is read once at require-time. We clear require cache
+// between tests to rebind it.
+function loadMcp(cwd) {
+  process.env.SHIPFAST_CWD = cwd;
+  const key = require.resolve('../mcp/server.cjs');
+  delete require.cache[key];
+  return require('../mcp/server.cjs');
+}
+
+describe('v1.9.0 skill_sessions persistence', () => {
+  it('start + finish writes a row with computed finished_at', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-sessions-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const mcp = loadMcp(tmp);
+      const sessions = mcp.TOOLS.brain_sessions;
+
+      const runId = 'run:test-1';
+      const started = sessions.handler({
+        action: 'start', run_id: runId, command: 'sf:do',
+        args: 'add button', branch: 'main', classification: '{}'
+      });
+      assert.equal(started.status, 'started');
+
+      const finished = sessions.handler({
+        action: 'finish', run_id: runId, outcome: 'completed', artifacts_written: '[]'
+      });
+      assert.equal(finished.status, 'finished');
+
+      const got = sessions.handler({ action: 'get', run_id: runId });
+      assert.equal(got.command, 'sf:do');
+      assert.equal(got.outcome, 'completed');
+      assert.ok(got.finished_at >= got.started_at);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('records redirect outcomes for silent bail replacements', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-sessions-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const mcp = loadMcp(tmp);
+      const sessions = mcp.TOOLS.brain_sessions;
+
+      sessions.handler({ action: 'start', run_id: 'r1', command: 'sf:plan', branch: 'main' });
+      sessions.handler({ action: 'finish', run_id: 'r1', outcome: 'redirected', redirect_to: 'sf:do' });
+
+      const rows = sessions.handler({ action: 'list', command_filter: 'sf:plan' });
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].outcome, 'redirected');
+      assert.equal(rows[0].redirect_to, 'sf:do');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('v1.9.0 findings citation-based reuse', () => {
+  const crypto = require('node:crypto');
+
+  function hashLines(filePath, start, end) {
+    const content = fs.readFileSync(filePath, 'utf8').split('\n');
+    const s = Math.max(1, start);
+    const e = Math.min(content.length, end);
+    const slice = content.slice(s - 1, e).join('\n');
+    return crypto.createHash('sha256').update(slice).digest('hex').slice(0, 16);
+  }
+
+  it('fresh citation verifies; mutated region goes stale; partial cites return partial', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-findings-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      // Create two files so we can test partial
+      const fileA = path.join(tmp, 'auth.ts');
+      const fileB = path.join(tmp, 'util.ts');
+      fs.writeFileSync(fileA, ['line1','line2','line3','line4','line5'].join('\n'));
+      fs.writeFileSync(fileB, ['u1','u2','u3'].join('\n'));
+
+      const mcp = loadMcp(tmp);
+      const findings = mcp.TOOLS.brain_findings;
+
+      // ADD a finding with two citations
+      const cites = [
+        { file: 'auth.ts', line_start: 1, line_end: 3, sha: 'abc', hash: hashLines(fileA, 1, 3) },
+        { file: 'util.ts', line_start: 1, line_end: 3, sha: 'abc', hash: hashLines(fileB, 1, 3) }
+      ];
+      const added = findings.handler({
+        action: 'add', branch: 'feat/x', topic: 'flow-map',
+        summary: 'how auth works', body: 'details',
+        citations: JSON.stringify(cites)
+      });
+      assert.equal(added.status, 'added');
+
+      // list_fresh with no file changes → status 'fresh', both citations valid
+      let fresh = findings.handler({ action: 'list_fresh', branch: 'feat/x' });
+      assert.equal(fresh.length, 1);
+      assert.equal(fresh[0].status, 'fresh');
+      assert.equal(fresh[0].valid_citations, 2);
+
+      // Mutate fileA — one citation now invalid → status 'partial'
+      fs.writeFileSync(fileA, ['CHANGED1','CHANGED2','CHANGED3','line4','line5'].join('\n'));
+      fresh = findings.handler({ action: 'list_fresh', branch: 'feat/x' });
+      assert.equal(fresh.length, 1);
+      assert.equal(fresh[0].status, 'partial');
+      assert.equal(fresh[0].valid_citations, 1);
+
+      // Mutate fileB too — zero valid → status 'stale', dropped from list
+      fs.writeFileSync(fileB, ['X','Y','Z'].join('\n'));
+      fresh = findings.handler({ action: 'list_fresh', branch: 'feat/x' });
+      assert.equal(fresh.length, 0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('v1.9.0 task CRUD extended brain_tasks', () => {
+  it('rename, edit_plan, soft_delete, restore, list filtering', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-tasks-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const mcp = loadMcp(tmp);
+      const tasks = mcp.TOOLS.brain_tasks;
+
+      // Create a task
+      const { id } = tasks.handler({ action: 'add', id: 'task:t1', description: 'orig desc' });
+      assert.equal(id, 'task:t1');
+
+      // Rename
+      tasks.handler({ action: 'rename', id: 'task:t1', description: 'renamed desc' });
+      let shown = tasks.handler({ action: 'show', id: 'task:t1' });
+      assert.equal(shown.description, 'renamed desc');
+
+      // Edit plan
+      tasks.handler({ action: 'edit_plan', id: 'task:t1', plan_text: 'steps: 1) do thing' });
+      shown = tasks.handler({ action: 'show', id: 'task:t1' });
+      assert.equal(shown.plan_text, 'steps: 1) do thing');
+
+      // Default list includes it
+      let rows = tasks.handler({ action: 'list' });
+      assert.ok(rows.some(r => r.id === 'task:t1'));
+
+      // Soft-delete → hidden from default list
+      tasks.handler({ action: 'soft_delete', id: 'task:t1' });
+      rows = tasks.handler({ action: 'list' });
+      assert.ok(!rows.some(r => r.id === 'task:t1'));
+
+      // Visible with include_deleted
+      rows = tasks.handler({ action: 'list', include_deleted: true });
+      assert.ok(rows.some(r => r.id === 'task:t1'));
+
+      // Restore → back in default list as pending
+      tasks.handler({ action: 'restore', id: 'task:t1' });
+      shown = tasks.handler({ action: 'show', id: 'task:t1' });
+      assert.equal(shown.status, 'pending');
+      rows = tasks.handler({ action: 'list' });
+      assert.ok(rows.some(r => r.id === 'task:t1'));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});

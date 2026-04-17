@@ -98,6 +98,25 @@ function escLike(s) {
     .replace(/'/g, "''");
 }
 
+// Citation verification (used by brain_findings.list_fresh)
+// A citation is valid if the cited line range in the file still hashes to
+// the stored hash. File not found OR hash mismatch → invalid.
+const crypto = require('crypto');
+function verifyCitation(c) {
+  if (!c || !c.file || c.hash == null) return false;
+  const abs = path.isAbsolute(c.file) ? c.file : path.join(CWD, c.file);
+  if (!fs.existsSync(abs)) return false;
+  let content;
+  try { content = fs.readFileSync(abs, 'utf8'); } catch { return false; }
+  const lines = content.split('\n');
+  const start = Math.max(1, parseInt(c.line_start) || 1);
+  const end = Math.min(lines.length, parseInt(c.line_end) || lines.length);
+  if (start > lines.length) return false;
+  const slice = lines.slice(start - 1, end).join('\n');
+  const actual = crypto.createHash('sha256').update(slice).digest('hex').slice(0, 16);
+  return actual === String(c.hash);
+}
+
 function validateSafeString(s, { maxLen = 200, field = 'input', allowEmpty = true } = {}) {
   if (s == null) {
     if (allowEmpty) return '';
@@ -526,24 +545,25 @@ const TOOLS = {
   },
 
   brain_tasks: {
-    description: 'List, add, or update tasks. Use this instead of raw sqlite3 commands for task management.',
+    description: 'Full task CRUD. Actions: list (default filters out deleted), show, add, update, rename, edit_plan, soft_delete, restore.',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', description: 'list, add, or update', enum: ['list', 'add', 'update'] },
-        status_filter: { type: 'string', description: 'Filter by status: pending, running, passed, failed, rolled_back (for list)' },
+        action: { type: 'string', description: 'list, show, add, update, rename, edit_plan, soft_delete, or restore', enum: ['list', 'show', 'add', 'update', 'rename', 'edit_plan', 'soft_delete', 'restore'] },
+        status_filter: { type: 'string', description: 'Filter by status: pending, running, passed, failed, rolled_back, deleted (for list)' },
         phase: { type: 'string', description: 'Filter by phase (for list) or set phase (for add)' },
-        id: { type: 'string', description: 'Task ID (required for update, optional for add)' },
-        description: { type: 'string', description: 'Task description (for add)' },
-        plan_text: { type: 'string', description: 'Task plan details (for add)' },
-        status: { type: 'string', description: 'New status (for update): pending, running, passed, failed, rolled_back' },
+        id: { type: 'string', description: 'Task ID (required for show/update/rename/edit_plan/soft_delete/restore; optional for add)' },
+        description: { type: 'string', description: 'Task description (for add/rename)' },
+        plan_text: { type: 'string', description: 'Task plan details (for add/edit_plan)' },
+        status: { type: 'string', description: 'New status (for update): pending, running, passed, failed, rolled_back, blocked, skipped, deleted' },
         commit_sha: { type: 'string', description: 'Commit SHA (for update on pass)' },
         error: { type: 'string', description: 'Error message (for update on fail)' },
+        include_deleted: { type: 'boolean', description: 'Include soft-deleted tasks in list output. Default false.' },
         limit: { type: 'number', description: 'Max results (for list). Default 20.' }
       },
       required: ['action']
     },
-    handler({ action, status_filter, phase, id, description, plan_text, status, commit_sha, error, limit }) {
+    handler({ action, status_filter, phase, id, description, plan_text, status, commit_sha, error, include_deleted, limit }) {
       if (action === 'add') {
         if (!description) return { error: 'description is required' };
         const taskId = id || ('task:' + Date.now());
@@ -552,6 +572,31 @@ const TOOLS = {
           `VALUES ('${esc(taskId)}', '${esc(phase || '')}', '${esc(description)}', '${esc(plan_text || '')}', 'pending')`
         );
         return ok ? { status: 'created', id: taskId } : { error: 'failed to insert' };
+      }
+      if (action === 'show') {
+        if (!id) return { error: 'id is required for show' };
+        const rows = query(`SELECT * FROM tasks WHERE id = '${esc(id)}'`);
+        return rows.length ? rows[0] : { error: 'not found' };
+      }
+      if (action === 'rename') {
+        if (!id || !description) return { error: 'id and description required for rename' };
+        const ok = run(`UPDATE tasks SET description = '${esc(description)}' WHERE id = '${esc(id)}'`);
+        return ok ? { status: 'renamed', id } : { error: 'failed to rename' };
+      }
+      if (action === 'edit_plan') {
+        if (!id || plan_text === undefined) return { error: 'id and plan_text required for edit_plan' };
+        const ok = run(`UPDATE tasks SET plan_text = '${esc(plan_text)}' WHERE id = '${esc(id)}'`);
+        return ok ? { status: 'plan_updated', id } : { error: 'failed to edit plan' };
+      }
+      if (action === 'soft_delete') {
+        if (!id) return { error: 'id required for soft_delete' };
+        const ok = run(`UPDATE tasks SET status = 'deleted' WHERE id = '${esc(id)}'`);
+        return ok ? { status: 'deleted', id } : { error: 'failed to delete' };
+      }
+      if (action === 'restore') {
+        if (!id) return { error: 'id required for restore' };
+        const ok = run(`UPDATE tasks SET status = 'pending' WHERE id = '${esc(id)}' AND status = 'deleted'`);
+        return ok ? { status: 'restored', id } : { error: 'failed to restore' };
       }
       if (action === 'update') {
         if (!id) return { error: 'id is required for update' };
@@ -568,6 +613,7 @@ const TOOLS = {
       // list
       const conditions = [];
       if (status_filter) conditions.push(`status = '${esc(status_filter)}'`);
+      else if (!include_deleted) conditions.push(`status != 'deleted'`);
       if (phase) conditions.push(`phase = '${esc(phase)}'`);
       const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
       return query(`SELECT id, phase, description, status, commit_sha, error, tokens_used, attempts FROM tasks ${where} ORDER BY created_at DESC LIMIT ${parseInt(limit) || 20}`);
@@ -603,6 +649,140 @@ const TOOLS = {
       }
       // list
       return query(`SELECT key, value FROM context WHERE scope = '${esc(scope)}' ORDER BY updated_at DESC LIMIT 20`);
+    }
+  },
+
+  brain_sessions: {
+    description: 'Record /sf:* skill invocations. Every skill calls start at the top and finish at every exit (including bail-outs and redirects). Use list/get to inspect recent runs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'start, finish, list, or get', enum: ['start', 'finish', 'list', 'get'] },
+        run_id: { type: 'string', description: 'Session run id (required for start/finish/get). Generate at skill start: "run:<unix-ms>:<rand4>".' },
+        command: { type: 'string', description: 'Skill name like "sf:do" (required for start)' },
+        args: { type: 'string', description: 'Raw $ARGUMENTS passed to the skill (for start)' },
+        branch: { type: 'string', description: 'Current git branch at invocation (for start)' },
+        classification: { type: 'string', description: 'JSON string: {intent, complexity, subcommand, ...} (for start)' },
+        outcome: { type: 'string', description: 'completed | redirected | bailed | errored (for finish)', enum: ['completed', 'redirected', 'bailed', 'errored'] },
+        redirect_to: { type: 'string', description: 'Target skill when outcome=redirected (for finish)' },
+        artifacts_written: { type: 'string', description: 'JSON array of artifact ids produced, e.g. [\"finding:..\",\"task:..\"] (for finish)' },
+        command_filter: { type: 'string', description: 'Filter by command (for list)' },
+        branch_filter: { type: 'string', description: 'Filter by branch (for list)' },
+        limit: { type: 'number', description: 'Max results (for list). Default 20.' }
+      },
+      required: ['action']
+    },
+    handler({ action, run_id, command, args, branch, classification, outcome, redirect_to, artifacts_written, command_filter, branch_filter, limit }) {
+      if (action === 'start') {
+        if (!run_id || !command) return { error: 'run_id and command required for start' };
+        const ok = run(
+          `INSERT OR REPLACE INTO skill_sessions (run_id, command, args, branch, classification, started_at) ` +
+          `VALUES ('${esc(run_id)}', '${esc(command)}', '${esc(args || '')}', '${esc(branch || '')}', '${esc(classification || '')}', strftime('%s','now'))`
+        );
+        return ok ? { status: 'started', run_id } : { error: 'failed to start session' };
+      }
+      if (action === 'finish') {
+        if (!run_id) return { error: 'run_id required for finish' };
+        const sets = [`finished_at = strftime('%s','now')`];
+        if (outcome) sets.push(`outcome = '${esc(outcome)}'`);
+        if (redirect_to !== undefined) sets.push(`redirect_to = '${esc(redirect_to)}'`);
+        if (artifacts_written !== undefined) sets.push(`artifacts_written = '${esc(artifacts_written)}'`);
+        const ok = run(`UPDATE skill_sessions SET ${sets.join(', ')} WHERE run_id = '${esc(run_id)}'`);
+        return ok ? { status: 'finished', run_id } : { error: 'failed to finish session' };
+      }
+      if (action === 'get') {
+        if (!run_id) return { error: 'run_id required for get' };
+        const rows = query(`SELECT * FROM skill_sessions WHERE run_id = '${esc(run_id)}'`);
+        return rows.length ? rows[0] : { error: 'not found' };
+      }
+      // list
+      const conditions = [];
+      if (command_filter) conditions.push(`command = '${esc(command_filter)}'`);
+      if (branch_filter) conditions.push(`branch = '${esc(branch_filter)}'`);
+      const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+      return query(`SELECT run_id, command, args, branch, outcome, redirect_to, artifacts_written, started_at, finished_at FROM skill_sessions ${where} ORDER BY started_at DESC LIMIT ${parseInt(limit) || 20}`);
+    }
+  },
+
+  brain_findings: {
+    description: 'Per-branch Scout findings with per-citation validation. /sf:investigate stores findings; /sf:do uses list_fresh to reuse them without re-Scouting when the cited code is unchanged. Citations point at (file, line range, sha, hash) — each is verified independently against the current repo so partial reuse works.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', description: 'add, list_fresh, get, mark_stale, or clear_branch', enum: ['add', 'list_fresh', 'get', 'mark_stale', 'clear_branch'] },
+        id: { type: 'string', description: 'Finding id (for get / mark_stale)' },
+        branch: { type: 'string', description: 'Git branch name (for add / list_fresh / clear_branch)' },
+        topic: { type: 'string', description: 'Topic label like "flow-map", "consumers", "risks" (for add)' },
+        summary: { type: 'string', description: 'Short headline, 1-2 sentences (for add)' },
+        body: { type: 'string', description: 'Full finding body, markdown (for add)' },
+        citations: { type: 'string', description: 'JSON array of citations: [{file, line_start, line_end, sha, hash}] (for add)' },
+        session_id: { type: 'string', description: 'Optional run_id of the session that produced this finding (for add)' }
+      },
+      required: ['action']
+    },
+    handler({ action, id, branch, topic, summary, body, citations, session_id }) {
+      if (action === 'add') {
+        if (!branch || !topic || !summary || !body || !citations) {
+          return { error: 'branch, topic, summary, body, citations required for add' };
+        }
+        // Validate citations is JSON array
+        try {
+          const parsed = JSON.parse(citations);
+          if (!Array.isArray(parsed)) return { error: 'citations must be a JSON array' };
+        } catch { return { error: 'citations must be valid JSON' }; }
+        const findingId = 'finding:' + Date.now() + ':' + Math.random().toString(36).slice(2, 6);
+        const ok = run(
+          `INSERT INTO findings (id, branch, topic, summary, body, citations_json, status, session_id) ` +
+          `VALUES ('${esc(findingId)}', '${esc(branch)}', '${esc(topic)}', '${esc(summary)}', '${esc(body)}', '${esc(citations)}', 'fresh', '${esc(session_id || '')}')`
+        );
+        return ok ? { status: 'added', id: findingId } : { error: 'failed to insert finding' };
+      }
+      if (action === 'get') {
+        if (!id) return { error: 'id required for get' };
+        const rows = query(`SELECT * FROM findings WHERE id = '${esc(id)}'`);
+        return rows.length ? rows[0] : { error: 'not found' };
+      }
+      if (action === 'mark_stale') {
+        if (!id) return { error: 'id required for mark_stale' };
+        const ok = run(`UPDATE findings SET status = 'stale' WHERE id = '${esc(id)}'`);
+        return ok ? { status: 'marked_stale', id } : { error: 'failed' };
+      }
+      if (action === 'clear_branch') {
+        if (!branch) return { error: 'branch required for clear_branch' };
+        const ok = run(`UPDATE findings SET status = 'stale' WHERE branch = '${esc(branch)}' AND status != 'stale'`);
+        return ok ? { status: 'cleared', branch } : { error: 'failed' };
+      }
+      // list_fresh — citation-based verification against current repo
+      if (!branch) return { error: 'branch required for list_fresh' };
+      const rows = query(
+        `SELECT id, branch, topic, summary, body, citations_json, status, session_id, created_at ` +
+        `FROM findings WHERE branch = '${esc(branch)}' AND status != 'stale' ORDER BY created_at DESC`
+      );
+      const verified = [];
+      for (const row of rows) {
+        let citations;
+        try { citations = JSON.parse(row.citations_json); } catch { citations = []; }
+        let validCount = 0;
+        const citationStatus = [];
+        for (const c of citations) {
+          const ok = verifyCitation(c);
+          citationStatus.push({ ...c, valid: ok });
+          if (ok) validCount++;
+        }
+        let newStatus = 'stale';
+        if (validCount === citations.length && citations.length > 0) newStatus = 'fresh';
+        else if (validCount > 0) newStatus = 'partial';
+        // Record verification result
+        run(`UPDATE findings SET status = '${newStatus}', last_verified_at = strftime('%s','now') WHERE id = '${esc(row.id)}'`);
+        if (newStatus !== 'stale') {
+          verified.push({
+            id: row.id, topic: row.topic, summary: row.summary, body: row.body,
+            status: newStatus, valid_citations: validCount, total_citations: citations.length,
+            citations: citationStatus
+          });
+        }
+      }
+      return verified;
     }
   },
 
@@ -722,6 +902,12 @@ const TOOLS = {
     }
   },
 };
+
+// Export handlers for unit tests. Stdio startup only runs when invoked directly.
+if (require.main !== module) {
+  module.exports = { TOOLS, verifyCitation, esc, query, run };
+  return;
+}
 
 // ============================================================
 // MCP Protocol (JSON-RPC over stdio)

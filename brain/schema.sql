@@ -285,6 +285,49 @@ CREATE TABLE IF NOT EXISTS scripts (
 );
 
 -- ============================================================
+-- SKILL SESSIONS (v1.9.0): every /sf:* invocation writes a row.
+-- Captures silent bail-outs and redirects in addition to completed runs.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS skill_sessions (
+  run_id            TEXT PRIMARY KEY,
+  command           TEXT NOT NULL,           -- 'sf:do', 'sf:plan', 'sf:tasks', ...
+  args              TEXT,                    -- raw $ARGUMENTS
+  branch            TEXT,
+  classification    TEXT,                    -- JSON: {intent, complexity, subcommand}
+  outcome           TEXT,                    -- completed|redirected|bailed|errored
+  redirect_to       TEXT,                    -- target skill when outcome='redirected'
+  artifacts_written TEXT,                    -- JSON array of artifact ids produced
+  started_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  finished_at       INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_skill_sessions_cmd    ON skill_sessions(command);
+CREATE INDEX IF NOT EXISTS idx_skill_sessions_branch ON skill_sessions(branch);
+
+-- ============================================================
+-- FINDINGS (v1.9.0): Scout output with per-citation validation.
+-- Per-branch, per-topic. Citations point at (file, lines, sha, hash)
+-- so list_fresh can verify each independently and support partial reuse.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS findings (
+  id               TEXT PRIMARY KEY,
+  branch           TEXT NOT NULL,
+  topic            TEXT NOT NULL,            -- 'flow-map','consumers','risks','config','key-fns'
+  summary          TEXT NOT NULL,
+  body             TEXT NOT NULL,
+  citations_json   TEXT NOT NULL,            -- JSON array: [{file,line_start,line_end,sha,hash}]
+  status           TEXT NOT NULL DEFAULT 'fresh',  -- fresh|partial|stale|merged
+  session_id       TEXT,                     -- soft FK to skill_sessions.run_id
+  created_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+  last_verified_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_findings_branch ON findings(branch);
+CREATE INDEX IF NOT EXISTS idx_findings_status ON findings(status);
+
+-- ============================================================
 -- MIGRATIONS TRACKING
 -- ============================================================
 
@@ -299,3 +342,5 @@ INSERT OR IGNORE INTO _migrations (version, name) VALUES (2, 'add_seeds_table');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (3, 'add_model_performance_table');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (4, 'add_context_index_and_cleanup');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (5, 'add_dependencies_and_scripts');
+INSERT OR IGNORE INTO _migrations (version, name) VALUES (6, 'add_skill_sessions_table');
+INSERT OR IGNORE INTO _migrations (version, name) VALUES (7, 'add_findings_table');

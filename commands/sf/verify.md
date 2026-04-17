@@ -20,6 +20,19 @@ without the biases accumulated during execution.
 
 <process>
 
+
+## Session start (v1.9.0 — session start)
+
+Generate `RUN_ID` (format `run:<unix-ms>:<rand4>`) and detect branch:
+
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+```
+
+Call: `brain_sessions { action: "start", run_id: RUN_ID, command: "sf:verify", args: "$ARGUMENTS", branch: BRANCH, classification: "{}" }`
+
+Initialize `artifacts = []` for tracking ids produced by this run.
+
 ## Step 1: Load must-haves from brain.db
 
 Use the `brain_context` MCP tool with: `{ "action": "get", "key_like": "must_haves:%", "limit": 1 }` — returns the most recently updated must-haves entry.
@@ -160,6 +173,15 @@ Test 2: [what to test]
 ```
 
 For each issue reported, generate a fix task and store in brain.db.
+
+
+## Session finish (v1.9.0 — session finish)
+
+Before returning control to the user, call:
+
+`brain_sessions { action: "finish", run_id: RUN_ID, outcome: "<completed|bailed|errored>", artifacts_written: <JSON stringified artifacts array> }`
+
+Every exit path — normal end, early bail, error — MUST hit this call. Never exit without finishing the session.
 
 </process>
 

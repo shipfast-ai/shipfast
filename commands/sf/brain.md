@@ -18,6 +18,19 @@ or reference the SQL patterns below — do not invent new queries.
 
 <process>
 
+
+## Session start (v1.9.0 — session start)
+
+Generate `RUN_ID` (format `run:<unix-ms>:<rand4>`) and detect branch:
+
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+```
+
+Call: `brain_sessions { action: "start", run_id: RUN_ID, command: "sf:brain", args: "$ARGUMENTS", branch: BRANCH, classification: "{}" }`
+
+Initialize `artifacts = []` for tracking ids produced by this run.
+
 ## Parse Query Type
 
 Detect what the user wants from their natural language query:
@@ -70,6 +83,15 @@ Execute directly against brain.db (read-only unless explicitly UPDATE).
 ## Display Results
 
 Format as a clean table or list. Keep output under 50 lines.
+
+
+## Session finish (v1.9.0 — session finish)
+
+Before returning control to the user, call:
+
+`brain_sessions { action: "finish", run_id: RUN_ID, outcome: "<completed|bailed|errored>", artifacts_written: <JSON stringified artifacts array> }`
+
+Every exit path — normal end, early bail, error — MUST hit this call. Never exit without finishing the session.
 
 </process>
 

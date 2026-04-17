@@ -21,6 +21,20 @@ Every step is skippable — trivial tasks burn 3K tokens, complex tasks burn 30K
 
 <pipeline>
 
+## STEP -1: Session start (v1.9.0)
+
+Generate `RUN_ID` (format `run:<unix-ms>:<rand4>`) and detect branch:
+
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+```
+
+Call: `brain_sessions { action: "start", run_id: RUN_ID, command: "sf:do", args: "$ARGUMENTS", branch: BRANCH, classification: "{}" }`
+
+Initialize `artifacts = []`. Fill `classification` with `{intent, complexity}` after STEP 1.
+
+Every exit path below — success, bail, redirect, error — MUST call `brain_sessions { action: "finish", run_id: RUN_ID, outcome: <outcome>, artifacts_written: <JSON array> }` as its last action. See "SESSION FINISH" block at the end of this pipeline.
+
 ## STEP 0: PARSE FLAGS (0 LLM tokens — string matching)
 
 Extract flags from `$ARGUMENTS` before processing. Flags start with `--` and are composable.
@@ -120,7 +134,23 @@ Pipeline: scout → architect → builder → critic (acceleration: partial, 35%
 
 ## STEP 2: CONTEXT GATHERING (0 tokens)
 
+**Branch detection (v1.9.0)** — Run once, reuse across steps:
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+```
+
 **Git diff awareness** — Run `git diff --name-only HEAD` to see what files changed since last commit. Pass this list to Scout so it focuses on recent changes instead of searching blindly.
+
+**Cached findings lookup (v1.9.0)** — Before deciding whether to run Scout, query cached findings for the current branch:
+
+`brain_findings { action: "list_fresh", branch: BRANCH }`
+
+The MCP tool verifies each finding's citations against current file contents and returns only findings whose citations still resolve (status `fresh` or `partial`). Store the returned array as `FRESH_FINDINGS`.
+
+- If `FRESH_FINDINGS` is non-empty and the task intent matches the cached topics, Scout can be skipped — pass the findings straight to Architect.
+- If entries have `status: "partial"`, Scout can still run but should be given the valid findings as prior context so it focuses on the regions whose citations went stale.
+
+See STEP 4 "Skip Scout if" for the full skip logic.
 
 If `.shipfast/brain.db` does not exist, tell user to run `shipfast init` first.
 
@@ -179,9 +209,10 @@ If `.shipfast/lock` exists and is older than 30 minutes:
 - etc. (14 templates pre-computed in core/templates.cjs)
 
 **Skip Scout if** (`--research` flag overrides — if set, Scout always runs):
-- All affected files already indexed in brain.db AND
-- We have high-confidence learnings for this domain AND
-- Intent is `fix` with explicit file paths
+- **Cached findings cover the task (v1.9.0)**: `FRESH_FINDINGS` from Step 2 is non-empty AND the returned topics match the task intent (e.g. intent=feature and we have `flow-map` + `consumers`). Pass `FRESH_FINDINGS` straight to Architect. Print: `Scout skipped — reusing N cached findings from /sf:investigate or a prior /sf:plan on branch <BRANCH>.`
+- All affected files already indexed in brain.db AND we have high-confidence learnings for this domain AND intent is `fix` with explicit file paths
+
+**Partial cache (v1.9.0)**: If `FRESH_FINDINGS` has entries with `status: "partial"`, Scout runs but receives the valid findings as prior context. Print: `Scout augmenting N partially-stale findings — only re-checking changed regions.`
 
 **Skip Architect if**:
 - Single-file change
@@ -464,6 +495,19 @@ Deferred: [issues needing manual attention, if any]
 Progress saved. [N]/[M] tasks completed.
 Run /sf-resume to continue in a new session.
 ```
+
+## SESSION FINISH (v1.9.0 — MUST run on every exit)
+
+Before returning control to the user, call:
+
+`brain_sessions { action: "finish", run_id: RUN_ID, outcome: "<completed|bailed|errored>", artifacts_written: <JSON stringified artifacts array> }`
+
+Outcome rules:
+- All tasks passed / user declined execution → `completed`
+- Bailed early (e.g. not a git repo, missing brain.db) → `bailed`
+- Agent crashed or fatal error → `errored`
+
+`artifacts` should include every `task:<id>` and `finding:<id>` produced this run.
 
 </pipeline>
 

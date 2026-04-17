@@ -26,6 +26,19 @@ Flags:
 
 <process>
 
+
+## Session start (v1.9.0 — session start)
+
+Generate `RUN_ID` (format `run:<unix-ms>:<rand4>`) and detect branch:
+
+```bash
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+```
+
+Call: `brain_sessions { action: "start", run_id: RUN_ID, command: "sf:discuss", args: "$ARGUMENTS", branch: BRANCH, classification: "{}" }`
+
+Initialize `artifacts = []` for tracking ids produced by this run.
+
 ## Step 1: Detect Domain + Ambiguity (zero tokens — rule-based)
 
 **Auto-detect domain** from task keywords:
@@ -153,6 +166,15 @@ Assuming (based on codebase patterns):
 
 Say 'no' to override, or Enter to continue.
 ```
+
+
+## Session finish (v1.9.0 — session finish)
+
+Before returning control to the user, call:
+
+`brain_sessions { action: "finish", run_id: RUN_ID, outcome: "<completed|bailed|errored>", artifacts_written: <JSON stringified artifacts array> }`
+
+Every exit path — normal end, early bail, error — MUST hit this call. Never exit without finishing the session.
 
 </process>
 
