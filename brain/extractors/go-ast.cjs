@@ -144,7 +144,8 @@ function extract(content, filePath) {
     seen.add(key);
     if (NON_CALL_KEYWORDS.has(calleeName)) continue;
     const sameFile = sameFileFns.get(calleeName);
-    if (sameFile && sameFile !== callerId) emit(callerId, sameFile, 'calls');
+    if (sameFile && sameFile !== callerId) { emit(callerId, sameFile, 'calls'); continue; }
+    emit(callerId, `unresolved:${calleeName}`, 'calls');
   }
   for (const { callerId, pkg, member } of pendingScoped) {
     const key = `${callerId}::${pkg}.${member}`;

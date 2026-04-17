@@ -420,7 +420,9 @@ function extract(content, filePath, ctx) {
       continue;
     }
     const targetFile = importedSymbols[calleeName];
-    if (targetFile) emit(callerId, `fn:${targetFile}:${calleeName}`, 'calls');
+    if (targetFile) { emit(callerId, `fn:${targetFile}:${calleeName}`, 'calls'); continue; }
+    // Unresolved — defer to project-wide resolver.
+    emit(callerId, `unresolved:${calleeName}`, 'calls');
   }
 
   // Method dispatch: x.method() where x was `new Foo()` and Foo is same-file.

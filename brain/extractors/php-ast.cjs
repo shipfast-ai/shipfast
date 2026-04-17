@@ -215,7 +215,8 @@ function extract(content, filePath) {
     const sameFile = sameFileFns.get(calleeName);
     if (sameFile && sameFile !== callerId) { emit(callerId, sameFile, 'calls'); continue; }
     const targetFqn = importedSymbols[calleeName];
-    if (targetFqn) emit(callerId, `${targetFqn}::${calleeName}`, 'calls');
+    if (targetFqn) { emit(callerId, `${targetFqn}::${calleeName}`, 'calls'); continue; }
+    emit(callerId, `unresolved:${calleeName}`, 'calls');
   }
 
   return { nodes, edges };

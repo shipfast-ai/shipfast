@@ -1596,12 +1596,16 @@ describe('javascript-ast extractor parity', () => {
     const ctx = { cwd: repoRoot };
     let totalR = { nodes: 0, edges: 0 }, totalA = { nodes: 0, edges: 0 };
 
+    // Count only edges that would survive resolver post-processing —
+    // `unresolved:<name>` targets are transient and depend on project-wide
+    // symbol index, so per-file counts aren't directly comparable.
+    const realEdges = arr => arr.filter(e => !(e.target || '').startsWith('unresolved:'));
     for (const f of fixtures) {
       const content = fs.readFileSync(path.join(repoRoot, f), 'utf8');
       const r = regex.extract(content, f, ctx);
       const a = astExtractor.extract(content, f, ctx);
-      totalR.nodes += r.nodes.length; totalR.edges += r.edges.length;
-      totalA.nodes += a.nodes.length; totalA.edges += a.edges.length;
+      totalR.nodes += r.nodes.length; totalR.edges += realEdges(r.edges).length;
+      totalA.nodes += a.nodes.length; totalA.edges += realEdges(a.edges).length;
 
       // Every fixture must yield at least one node in both extractors.
       assert.ok(r.nodes.length > 0, `regex: ${f} produced no nodes`);

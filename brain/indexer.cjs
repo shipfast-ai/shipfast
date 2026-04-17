@@ -290,6 +290,13 @@ function indexCodebase(cwd, opts = {}) {
   const batch = new BatchCollector();
   let indexed = 0, skipped = 0, totalNodes = 0, totalEdges = 0;
 
+  // Project-wide resolver state — collected across all files, flushed after
+  // the main loop so every `unresolved:<name>` edge can consult the full
+  // symbol index (not just same-file).
+  const resolver = require('../core/resolver.cjs');
+  const allSymbolNodes = [];   // function/class/type nodes
+  const pendingEdges = [];     // edges deferred to the resolver pass
+
   // Per-language config cache keyed by extractor (so JS tsconfig loads once, etc.)
   const configCache = new Map();
   function getConfigFor(extractor) {
@@ -331,8 +338,15 @@ function indexCodebase(cwd, opts = {}) {
       const ctx = { cwd, aliases: getConfigFor(extractor) };
       const result = extractor ? extractor.extract(content, relPath, ctx) : { nodes: [], edges: [] };
 
-      for (const node of result.nodes) batch.addNode(node);
-      for (const edge of result.edges) batch.addEdge(edge.source, edge.target, edge.kind);
+      for (const node of result.nodes) {
+        batch.addNode(node);
+        if (node.kind === 'function' || node.kind === 'class' || node.kind === 'type') {
+          allSymbolNodes.push(node);
+        }
+      }
+      // Defer edges. The resolver pass (after the loop) rewrites any
+      // `unresolved:<name>` targets against the project-wide symbol index.
+      for (const edge of result.edges) pendingEdges.push(edge);
 
       indexed++;
       totalNodes += result.nodes.length;
@@ -341,6 +355,15 @@ function indexCodebase(cwd, opts = {}) {
       if (verbose) console.error(`  skip ${path.relative(cwd, file)}: ${err.message}`);
     }
   }
+
+  // Project-wide resolver pass — replace `unresolved:<name>` edge targets
+  // with concrete node ids from the cross-file symbol index. Closes the
+  // cross-file calls gap for languages without named imports (Swift/Ruby/C/…).
+  const resolvedEdges = resolver.resolveEdges(allSymbolNodes, pendingEdges);
+  for (const edge of resolvedEdges) {
+    batch.addEdge(edge.source, edge.target, edge.kind, edge.weight);
+  }
+  totalEdges = resolvedEdges.length;
 
   // Execute batch in single transaction
   const sql = batch.toSQL();

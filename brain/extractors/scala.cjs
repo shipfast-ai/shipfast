@@ -61,9 +61,10 @@ function extract(content, filePath) {
   let m;
   while ((m = IMPORT_RE.exec(content)) !== null) {
     const raw = m[1].trim();
-    // Emit a module-level imports edge (legacy behaviour)
-    const modBase = raw.split(/[{.]/).filter(Boolean)[0];
-    if (modBase) emit(`file:${filePath}`, `module:${modBase}`, 'imports');
+    // Emit a module-level imports edge using the full module path (preserves
+    // legacy shape: `module:scala.collection.mutable`).
+    const fullMod = raw.replace(/\{[^}]*\}/, '').replace(/\.$/, '').trim();
+    if (fullMod) emit(`file:${filePath}`, `module:${fullMod}`, 'imports');
 
     // Parse names: `pkg.{A, B => C, _}` or `pkg.Name` or `pkg.Name => Alias`
     const groupMatch = raw.match(/^([\w.]+)\.\{([^}]+)\}$/);

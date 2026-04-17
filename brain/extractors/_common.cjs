@@ -203,7 +203,10 @@ function emitCalls({ content, lines, fnNodes, importedSymbols, filePath, emit, c
       const sameFile = fnIds.get(callee);
       if (sameFile) { emit(caller.id, sameFile, 'calls'); continue; }
       const targetFile = importedSymbols && importedSymbols[callee];
-      if (targetFile) emit(caller.id, `fn:${targetFile}:${callee}`, 'calls');
+      if (targetFile) { emit(caller.id, `fn:${targetFile}:${callee}`, 'calls'); continue; }
+      // Unresolved at extractor time. Hand off to the project-wide resolver
+      // so cross-file / cross-package edges can still be filled in.
+      emit(caller.id, `unresolved:${callee}`, 'calls');
     }
   }
 }
