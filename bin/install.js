@@ -141,10 +141,12 @@ function installFor(key, runtime) {
 
   // indexer.cjs requires ./extractors/index.cjs at load and ./signals/index.cjs lazily.
   // Mirror the whole subtrees so the indexer works from any runtime's install dir.
+  // extractors/ ships: language extractors, vendored AST grammars, and the
+  // vendored web-tree-sitter runtime (so --ast works without node_modules).
   for (const sub of ['extractors', 'signals'])
     copyDir(path.join('brain', sub), path.join(brainDir, sub));
 
-  for (const f of ['architecture.cjs','autopilot.cjs','budget.cjs','checkpoint.cjs','constants.cjs','learning.cjs','ambiguity.cjs','context-builder.cjs','conversation.cjs','executor.cjs','git-intel.cjs','guardrails.cjs','model-selector.cjs','retry.cjs','session.cjs','skip-logic.cjs','templates.cjs','verify.cjs'])
+  for (const f of ['architecture.cjs','autopilot.cjs','budget.cjs','checkpoint.cjs','constants.cjs','learning.cjs','ambiguity.cjs','context-builder.cjs','conversation.cjs','executor.cjs','git-intel.cjs','guardrails.cjs','model-selector.cjs','retry.cjs','session.cjs','skip-logic.cjs','templates.cjs','verify.cjs','resolver.cjs'])
     copy('core/' + f, path.join(coreDir, f));
 
   // Copy agents

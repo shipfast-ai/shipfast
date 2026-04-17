@@ -434,7 +434,7 @@ if (require.main === module) (async () => {
   const fresh = args.includes('--fresh');
   // v2.0: AST mode is default. --regex opts out to the legacy path.
   // --ast still works for explicit opt-in (no-op when already default).
-  const useAst = !args.includes('--regex');
+  let useAst = !args.includes('--regex');
   const cwd = args.find(a => !a.startsWith('-')) || process.cwd();
 
   // --fresh flag: delete existing brain.db for full reindex
@@ -462,6 +462,10 @@ if (require.main === module) (async () => {
       await astHelper.preload([...new Set(grammars)]);
     } catch (err) {
       console.log('AST preload failed (' + err.message + ') — continuing with regex');
+      // Critical: disable AST so the file loop uses regex extractors.
+      // Without this the indexer would route JS/PHP/… to AST extractors
+      // whose parseSync() throws on every file (grammar not preloaded).
+      useAst = false;
     }
   }
 

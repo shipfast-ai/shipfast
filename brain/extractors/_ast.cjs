@@ -27,7 +27,15 @@ const GRAMMARS_DIR = path.join(__dirname, 'grammars');
 
 async function init() {
   if (runtimeInited) return;
-  TS = require('web-tree-sitter');
+  // Try the vendored copy first (ships next to the extractor in the npm tarball
+  // and is copied alongside the indexer at install time). Fall back to normal
+  // module resolution so dev-mode (running from the repo's node_modules) still
+  // works.
+  try {
+    TS = require('./vendor/web-tree-sitter/web-tree-sitter.cjs');
+  } catch {
+    TS = require('web-tree-sitter');
+  }
   await TS.Parser.init();
   runtimeInited = true;
 }
