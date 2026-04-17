@@ -633,6 +633,73 @@ const TOOLS = {
     }
   },
 
+  brain_stack: {
+    description: 'Compact project-stack summary: framework, runtime, package manager, test framework, ORM, monorepo tool. Reads derived signals from brain.db.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    handler() {
+      const rows = query(`SELECT key, value FROM context WHERE scope = 'project'`);
+      const out = {};
+      for (const r of rows) {
+        try { out[r.key] = JSON.parse(r.value); }
+        catch { out[r.key] = r.value; }
+      }
+      return out;
+    }
+  },
+
+  brain_deps: {
+    description: 'List project dependencies from manifest files (package.json, Cargo.toml, go.mod, pyproject.toml, etc.). Filter by ecosystem, name (partial match), or kind.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ecosystem: { type: 'string', description: 'npm, cargo, pypi, go, rubygems, composer, pubspec, nuget, hex', enum: ['npm','cargo','pypi','go','rubygems','composer','pubspec','nuget','hex',''] },
+        name:      { type: 'string', description: 'Partial name match (e.g. "react" matches @types/react too)' },
+        kind:      { type: 'string', description: 'runtime, dev, peer, optional', enum: ['runtime','dev','peer','optional',''] },
+        limit:     { type: 'number', description: 'Max results (default 100, max 500)' },
+      },
+      required: [],
+    },
+    handler({ ecosystem, name, kind, limit }) {
+      const safeEco  = validateSafeString(ecosystem, { field: 'ecosystem', maxLen: 40 });
+      const safeName = validateSafeString(name,      { field: 'name',      maxLen: 100 });
+      const safeKind = validateSafeString(kind,      { field: 'kind',      maxLen: 40 });
+      const where = [];
+      if (safeEco)  where.push(`ecosystem = '${esc(safeEco)}'`);
+      if (safeKind) where.push(`kind = '${esc(safeKind)}'`);
+      if (safeName) where.push(`name LIKE '%${escLike(safeName)}%' ESCAPE '\\'`);
+      const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+      const lim = Math.max(1, Math.min(500, parseInt(limit) || 100));
+      return query(`SELECT manifest_path, ecosystem, name, version, kind FROM dependencies ${clause} ORDER BY ecosystem, name LIMIT ${lim}`);
+    }
+  },
+
+  brain_scripts: {
+    description: 'List build/test/dev scripts from package.json / pyproject.toml / composer.json. Use this before suggesting a command — e.g. run the project\'s actual test script rather than a generic "npm test".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact script name (e.g. "test", "build", "dev")' },
+      },
+      required: [],
+    },
+    handler({ name }) {
+      const safeName = validateSafeString(name, { field: 'name', maxLen: 100 });
+      const where = safeName ? `WHERE name = '${esc(safeName)}'` : '';
+      return query(`SELECT manifest_path, name, command, source FROM scripts ${where} ORDER BY manifest_path, name LIMIT 100`);
+    }
+  },
+
+  brain_env_vars: {
+    description: 'List environment variable NAMES expected by the project (from .env.example / .env.sample). Values are NEVER stored or returned.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+    handler() {
+      const rows = query(`SELECT value FROM context WHERE scope = 'project' AND key = 'env_vars'`);
+      if (!rows.length) return { env_vars: [] };
+      try { return { env_vars: JSON.parse(rows[0].value) }; }
+      catch { return { env_vars: [] }; }
+    }
+  },
+
   brain_model_outcome: {
     description: 'Record model performance outcome for the feedback loop. Tracks success/failure per agent+model+domain.',
     inputSchema: {

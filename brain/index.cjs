@@ -188,6 +188,35 @@ function getStaleNodes(cwd) {
   return query(cwd, `SELECT id, file_path, hash FROM nodes WHERE kind = 'file'`);
 }
 
+// --- Project signals (v1.7.0) ---
+
+// List dependencies, optionally filtered. Safe against escLike wildcard injection.
+function getDependencies(cwd, { ecosystem, name, kind, limit = 200 } = {}) {
+  const where = [];
+  if (ecosystem) where.push(`ecosystem = '${esc(ecosystem)}'`);
+  if (kind)      where.push(`kind = '${esc(kind)}'`);
+  if (name)      where.push(`name LIKE '%${escLike(name)}%' ESCAPE '\\'`);
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const lim = Math.max(1, Math.min(1000, parseInt(limit) || 200));
+  return query(cwd, `SELECT manifest_path, ecosystem, name, version, kind FROM dependencies ${clause} ORDER BY ecosystem, name LIMIT ${lim}`);
+}
+
+function getScripts(cwd, { name } = {}) {
+  const where = name ? `WHERE name = '${esc(name)}'` : '';
+  return query(cwd, `SELECT manifest_path, name, command, source FROM scripts ${where} ORDER BY manifest_path, name LIMIT 100`);
+}
+
+// High-level stack summary — reads derived signals from context table
+function getProjectStack(cwd) {
+  const rows = query(cwd, `SELECT key, value FROM context WHERE scope = 'project'`);
+  const out = {};
+  for (const r of rows) {
+    try { out[r.key] = JSON.parse(r.value); }
+    catch { out[r.key] = r.value; }
+  }
+  return out;
+}
+
 // Context operations (replaces STATE.md / REQUIREMENTS.md)
 
 function setContext(cwd, scope, key, value) {
@@ -459,6 +488,9 @@ module.exports = {
   getBlastRadiusAsync,
   getSignaturesForFile,
   getStaleNodes,
+  getDependencies,
+  getScripts,
+  getProjectStack,
   setContext,
   getContext,
   getAllContext,

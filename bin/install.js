@@ -73,6 +73,7 @@ function main() {
   switch (command) {
     case 'init':
     case 'train':    return cmdInit();
+    case 'refresh':  return cmdRefresh();
     case 'link':     return cmdLink();
     case 'unlink':   return cmdUnlink();
     case 'update':   return cmdUpdate();
@@ -290,6 +291,33 @@ function cmdInit() {
     console.log(`${dim}Use /sf-do in your AI tool.${reset}\n`);
   } catch (err) {
     console.log(`${red}Failed: ${err.message.slice(0, 100)}${reset}\n`);
+  }
+}
+
+// Refresh — re-scan project signals (deps, scripts, framework) without full reindex.
+// Fast (~50ms) and safe to run after `npm install`, `cargo add`, etc.
+function cmdRefresh() {
+  const cwd = process.cwd();
+  if (!fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'))) {
+    console.log(`${red}No brain.db found.${reset} Run ${cyan}shipfast init${reset} first.\n`);
+    return;
+  }
+  // Find brain/signals/index.cjs — installed location or source
+  const paths = Object.values(RUNTIMES)
+    .map(r => path.join(os.homedir(), r.path, 'shipfast', 'brain', 'signals', 'index.cjs'));
+  paths.push(path.join(__dirname, '..', 'brain', 'signals', 'index.cjs'));
+  const signalsPath = paths.find(p => fs.existsSync(p));
+  if (!signalsPath) {
+    console.log(`${yellow}signals module not found (old install?). Run ${cyan}shipfast update${reset}${yellow} to get the latest.${reset}\n`);
+    return;
+  }
+  try {
+    const signals = require(signalsPath);
+    const result = signals.scanAll(cwd);
+    console.log(`${green}Signals refreshed.${reset}`);
+    console.log(`  ${dim}${result.manifests} manifests scanned, ${result.deps} deps, ${result.scripts} scripts, ${result.signals} signals${reset}\n`);
+  } catch (err) {
+    console.log(`${red}Refresh failed: ${err.message}${reset}\n`);
   }
 }
 
@@ -726,6 +754,7 @@ function cmdHelp() {
   console.log(`${bold}Terminal commands:${reset}\n`);
   console.log(`  ${cyan}shipfast init${reset}             Index current repo into .shipfast/brain.db`);
   console.log(`  ${cyan}shipfast init --fresh${reset}     Full reindex (clears existing brain.db)`);
+  console.log(`  ${cyan}shipfast refresh${reset}          Re-scan project signals (deps, framework, scripts) only`);
   console.log(`  ${cyan}shipfast link <path>${reset}      Link another repo for cross-repo search`);
   console.log(`  ${cyan}shipfast unlink [path]${reset}    Unlink a repo (or all)`);
   console.log(`  ${cyan}shipfast status${reset}           Show installed runtimes + brain + links`);

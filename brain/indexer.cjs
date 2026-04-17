@@ -334,6 +334,12 @@ function indexCodebase(cwd, opts = {}) {
     }
   } catch { /* architecture optional */ }
 
+  // Scan project signals (deps, scripts, framework, runtime) — new in v1.7.0
+  try {
+    const signals = require('./signals/index.cjs');
+    signals.scanAll(cwd);
+  } catch { /* signals optional */ }
+
   const elapsed = Date.now() - startTime;
   return { files: files.length, indexed, skipped, cleaned, layers, nodes: totalNodes, edges: totalEdges, statements: batch.count, elapsed_ms: elapsed };
 }

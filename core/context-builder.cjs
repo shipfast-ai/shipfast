@@ -39,6 +39,9 @@ function buildContext(cwd, opts = {}) {
 function buildMinimalContext(cwd, { phase }) {
   const parts = [];
 
+  const stackBlock = buildStackBlock(cwd);
+  if (stackBlock) parts.push(stackBlock);
+
   const decisions = phase
     ? brain.getDecisions(cwd, phase).slice(0, 3)
     : brain.getDecisions(cwd).slice(0, 3);
@@ -47,13 +50,37 @@ function buildMinimalContext(cwd, { phase }) {
     parts.push('<decisions>' + decisions.map(d => `\n${d.question} -> ${d.decision}`).join('') + '\n</decisions>');
   }
 
-  const techStack = brain.getContext(cwd, 'project', 'tech_stack');
-  if (techStack) {
-    const summary = typeof techStack === 'string' ? techStack : JSON.stringify(techStack);
-    parts.push(`<stack>${summary}</stack>`);
-  }
-
   return parts.join('\n');
+}
+
+// Compact project-stack summary: framework, runtime, package manager, test framework,
+// plus top 15 runtime deps with versions. Target: ~150 tokens. Injected into every agent.
+function buildStackBlock(cwd) {
+  let stack = {};
+  try { stack = brain.getProjectStack ? brain.getProjectStack(cwd) : {}; }
+  catch { return null; }
+  if (!stack || Object.keys(stack).length === 0) return null;
+
+  const lines = [];
+  if (stack.framework)       lines.push(`framework: ${stack.framework.label || stack.framework.name || ''} ${stack.framework.version || ''}`.trim());
+  if (stack.runtime)         lines.push(`runtime: ${stack.runtime.language || ''} ${stack.runtime.version || ''}`.trim());
+  if (stack.package_manager) lines.push(`package_manager: ${typeof stack.package_manager === 'string' ? stack.package_manager : JSON.stringify(stack.package_manager)}`);
+  if (stack.test_framework)  lines.push(`test_framework: ${stack.test_framework.name || ''} ${stack.test_framework.version || ''}`.trim());
+  if (stack.orm)             lines.push(`orm: ${stack.orm.name || ''} ${stack.orm.version || ''}`.trim());
+  if (stack.typescript)      lines.push(`typescript: target=${stack.typescript.target} strict=${stack.typescript.strict}`);
+  if (stack.workspace)       lines.push(`workspace: ${stack.workspace.type} packages=[${(stack.workspace.packages || []).slice(0, 5).join(', ')}]`);
+
+  // Top runtime deps for context (just names + versions, capped)
+  try {
+    const deps = brain.getDependencies ? brain.getDependencies(cwd, { kind: 'runtime', limit: 15 }) : [];
+    if (deps.length) {
+      const summary = deps.map(d => `${d.name}${d.version ? '@' + d.version.replace(/^[\^~]/, '') : ''}`).join(', ');
+      lines.push(`deps: ${summary}`);
+    }
+  } catch { /* brain missing or no deps table — fall through */ }
+
+  if (!lines.length) return null;
+  return '<project_stack>\n' + lines.join('\n') + '\n</project_stack>';
 }
 
 /**
@@ -61,6 +88,10 @@ function buildMinimalContext(cwd, { phase }) {
  */
 function buildFullContext(cwd, { affectedFiles, phase, domain, agent }) {
   const parts = [];
+
+  // 0. Project stack (framework, runtime, deps) — every agent gets this
+  const stackBlock = buildStackBlock(cwd);
+  if (stackBlock) parts.push(stackBlock);
 
   // 1. Decisions (compact)
   const decisions = phase

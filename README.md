@@ -57,6 +57,7 @@ Auto-detects your AI tools and installs for all of them. Verify: run `/sf-help` 
 ```bash
 shipfast init           # Index repo + auto-configure permissions (no --dangerously-skip-permissions needed)
 shipfast init --fresh   # Full reindex (clears existing brain)
+shipfast refresh        # Re-scan project signals (deps, framework, scripts) — fast
 shipfast link <path>    # Link another repo for cross-repo search
 shipfast unlink [path]  # Unlink a repo (or all)
 shipfast doctor         # Check brain.db health + diagnose issues
@@ -260,7 +261,9 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 **Incremental indexing**: ~300ms for changed files. Deleted files auto-cleaned. Stale learnings auto-pruned.
 
-**MCP Server**: 22 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
+**MCP Server**: 26 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
+
+**Project Signals** (v1.7.0): manifest files (`package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `composer.json`, `pubspec.yaml`, `*.csproj`, `mix.exs`) + config files (`tsconfig.json`, `.nvmrc`, `.env.example`, `pnpm-workspace.yaml`, etc.) are scanned on `shipfast init` and refreshed with `shipfast refresh`. Framework, runtime, package manager, test framework, ORM are auto-detected and injected into every agent's context as `<project_stack>` — so agents know your real stack without re-reading files each task.
 
 ---
 

@@ -801,6 +801,434 @@ describe('cleanCodexToml', () => {
   });
 });
 
+// ============================================================
+// Project-signal scanners (v1.7.0)
+// ============================================================
+
+const pkgJsonScanner       = require('../brain/signals/package_json.cjs');
+const cargoScanner         = require('../brain/signals/cargo_toml.cjs');
+const goModScanner         = require('../brain/signals/go_mod.cjs');
+const pyprojectScanner     = require('../brain/signals/pyproject_toml.cjs');
+const reqTxtScanner        = require('../brain/signals/requirements_txt.cjs');
+const gemfileScanner       = require('../brain/signals/gemfile.cjs');
+const composerScanner      = require('../brain/signals/composer_json.cjs');
+const pubspecScanner       = require('../brain/signals/pubspec_yaml.cjs');
+const csprojScanner        = require('../brain/signals/csproj.cjs');
+const mixScanner           = require('../brain/signals/mix_exs.cjs');
+const tsconfigScanner      = require('../brain/signals/tsconfig_json.cjs');
+const versionFilesScanner  = require('../brain/signals/version_files.cjs');
+const lockfileScanner      = require('../brain/signals/pm_lockfiles.cjs');
+const envScanner           = require('../brain/signals/env_example.cjs');
+const workspacesScanner    = require('../brain/signals/workspaces.cjs');
+const frameworkDetect      = require('../brain/signals/framework_detect.cjs');
+const signalsCommon        = require('../brain/signals/_common.cjs');
+
+describe('package_json scanner', () => {
+  it('parses deps + devDeps + scripts + engines', () => {
+    const src = JSON.stringify({
+      name: 'x', version: '1.0.0',
+      engines: { node: '>=18' },
+      packageManager: 'pnpm@8.15.0',
+      dependencies: { react: '^19.0.0', exceljs: '^4.4.0' },
+      devDependencies: { vitest: '^1.4.0' },
+      scripts: { test: 'vitest run', build: 'tsc' },
+    });
+    const r = pkgJsonScanner.scan(src, 'package.json');
+    assert.equal(r.deps.length, 3);
+    assert.ok(r.deps.some(d => d.name === 'react' && d.kind === 'runtime'));
+    assert.ok(r.deps.some(d => d.name === 'vitest' && d.kind === 'dev'));
+    assert.equal(r.scripts.length, 2);
+    assert.equal(r.signals.package_manager, 'pnpm@8.15.0');
+    assert.deepEqual(r.signals.engines, { node: '>=18' });
+  });
+  it('captures workspaces field', () => {
+    const r = pkgJsonScanner.scan(JSON.stringify({
+      name: 'root', workspaces: ['apps/*', 'packages/*']
+    }), 'package.json');
+    assert.equal(r.signals.workspace.type, 'npm');
+    assert.deepEqual(r.signals.workspace.packages, ['apps/*', 'packages/*']);
+  });
+});
+
+describe('cargo_toml scanner', () => {
+  it('parses package + dependencies + dev-dependencies', () => {
+    const r = cargoScanner.scan(`
+[package]
+name = "my-crate"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+`);
+    assert.equal(r.signals.project_name, 'my-crate');
+    assert.equal(r.signals.rust_edition, '2021');
+    assert.ok(r.deps.some(d => d.name === 'serde' && d.version === '1'));
+    assert.ok(r.deps.some(d => d.name === 'tokio' && d.version === '1'));
+    assert.ok(r.deps.some(d => d.name === 'pretty_assertions' && d.kind === 'dev'));
+  });
+});
+
+describe('go_mod scanner', () => {
+  it('parses module + multi-line require block', () => {
+    const r = goModScanner.scan(`
+module github.com/acme/foo
+
+go 1.22
+
+require (
+	github.com/gin-gonic/gin v1.9.1
+	github.com/spf13/cobra v1.8.0 // indirect
+)
+
+require github.com/google/uuid v1.6.0
+`);
+    assert.equal(r.signals.project_name, 'github.com/acme/foo');
+    assert.equal(r.signals.go_version, '1.22');
+    assert.ok(r.deps.some(d => d.name === 'github.com/gin-gonic/gin' && d.version === 'v1.9.1'));
+    assert.ok(r.deps.some(d => d.name === 'github.com/spf13/cobra' && d.kind === 'peer')); // indirect
+    assert.ok(r.deps.some(d => d.name === 'github.com/google/uuid'));
+  });
+});
+
+describe('pyproject_toml scanner', () => {
+  it('parses PEP 621 deps', () => {
+    const r = pyprojectScanner.scan(`
+[project]
+name = "my-pkg"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.100", "pydantic<3"]
+`);
+    assert.equal(r.signals.project_name, 'my-pkg');
+    assert.equal(r.signals.python_requires, '>=3.11');
+    assert.ok(r.deps.some(d => d.name === 'fastapi'));
+    assert.ok(r.deps.some(d => d.name === 'pydantic'));
+  });
+  it('parses Poetry deps', () => {
+    const r = pyprojectScanner.scan(`
+[tool.poetry]
+name = "p"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+django = "^5.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^8"
+`);
+    assert.ok(r.deps.some(d => d.name === 'django' && d.kind === 'runtime'));
+    assert.ok(r.deps.some(d => d.name === 'pytest' && d.kind === 'dev'));
+    assert.equal(r.signals.python_requires, '^3.11');
+  });
+});
+
+describe('requirements_txt scanner', () => {
+  it('parses flat pip requirements', () => {
+    const r = reqTxtScanner.scan(`
+flask==3.0.0
+requests>=2.25
+# comment line
+-r other.txt
+`, 'requirements.txt');
+    assert.ok(r.deps.some(d => d.name === 'flask'));
+    assert.ok(r.deps.some(d => d.name === 'requests'));
+    assert.equal(r.deps.filter(d => d.name.startsWith('-')).length, 0);
+  });
+  it('tags dev requirements', () => {
+    const r = reqTxtScanner.scan('pytest', 'requirements-dev.txt');
+    assert.equal(r.deps[0].kind, 'dev');
+  });
+});
+
+describe('gemfile scanner', () => {
+  it('extracts gems and dev groups', () => {
+    const r = gemfileScanner.scan(`
+ruby '3.2.0'
+gem 'rails', '~> 7.1'
+gem 'pg'
+group :development, :test do
+  gem 'rspec'
+end
+`);
+    assert.equal(r.signals.ruby_required, '3.2.0');
+    assert.ok(r.deps.some(d => d.name === 'rails' && d.kind === 'runtime'));
+    assert.ok(r.deps.some(d => d.name === 'rspec' && d.kind === 'dev'));
+  });
+});
+
+describe('composer_json scanner', () => {
+  it('parses require + require-dev + scripts', () => {
+    const r = composerScanner.scan(JSON.stringify({
+      name: 'acme/app',
+      require: { php: '>=8.1', 'laravel/framework': '^11.0' },
+      'require-dev': { 'phpunit/phpunit': '^10.5' },
+      scripts: { test: 'phpunit', 'lint': ['php-cs-fixer fix'] },
+    }));
+    assert.equal(r.signals.php_required, '>=8.1');
+    assert.ok(r.deps.some(d => d.name === 'laravel/framework'));
+    assert.ok(r.deps.some(d => d.name === 'phpunit/phpunit' && d.kind === 'dev'));
+    assert.equal(r.scripts.length, 2);
+  });
+});
+
+describe('pubspec_yaml scanner', () => {
+  it('parses flutter deps', () => {
+    const r = pubspecScanner.scan(`
+name: my_app
+version: 1.0.0
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^3.0.0
+`);
+    assert.equal(r.signals.project_name, 'my_app');
+    assert.ok(r.deps.some(d => d.name === 'http'));
+    assert.ok(r.deps.some(d => d.name === 'lints' && d.kind === 'dev'));
+  });
+});
+
+describe('csproj scanner', () => {
+  it('extracts PackageReference entries', () => {
+    const r = csprojScanner.scan(`
+<Project>
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Serilog"><Version>3.1.1</Version></PackageReference>
+  </ItemGroup>
+</Project>
+`, 'app.csproj');
+    assert.equal(r.signals.dotnet_target, 'net8.0');
+    assert.ok(r.deps.some(d => d.name === 'Newtonsoft.Json' && d.version === '13.0.3'));
+    assert.ok(r.deps.some(d => d.name === 'Serilog' && d.version === '3.1.1'));
+  });
+});
+
+describe('mix_exs scanner', () => {
+  it('extracts deps + app + version', () => {
+    const r = mixScanner.scan(`
+defmodule MyApp.MixProject do
+  use Mix.Project
+  def project do
+    [app: :my_app, version: "0.1.0", elixir: "~> 1.16", deps: deps()]
+  end
+  defp deps do
+    [
+      {:phoenix, "~> 1.7"},
+      {:ecto, "~> 3.11", only: :dev},
+      {:plug, "~> 1.14", optional: true}
+    ]
+  end
+end
+`);
+    assert.equal(r.signals.project_name, 'my_app');
+    assert.equal(r.signals.project_version, '0.1.0');
+    assert.ok(r.deps.some(d => d.name === 'phoenix' && d.kind === 'runtime'));
+    assert.ok(r.deps.some(d => d.name === 'ecto' && d.kind === 'dev'));
+    assert.ok(r.deps.some(d => d.name === 'plug' && d.kind === 'optional'));
+  });
+});
+
+describe('tsconfig_json scanner', () => {
+  it('captures compilerOptions with comments', () => {
+    const r = tsconfigScanner.scan(`{
+  // base config
+  "compilerOptions": {
+    "target": "es2022",
+    "strict": true,
+    "paths": { "@/*": ["./src/*"] },
+  },
+}`, 'tsconfig.json');
+    assert.equal(r.signals.typescript.target, 'es2022');
+    assert.equal(r.signals.typescript.strict, true);
+    assert.deepEqual(r.signals.typescript.paths, { '@/*': ['./src/*'] });
+  });
+  it('ignores nested tsconfig files', () => {
+    const r = tsconfigScanner.scan('{"compilerOptions":{"strict":false}}', 'apps/web/tsconfig.json');
+    assert.deepEqual(r, {});
+  });
+});
+
+describe('version_files scanner', () => {
+  it('handles .nvmrc', () => {
+    const r = versionFilesScanner.scan('v20.11.0\n', '.nvmrc');
+    assert.equal(r.signals.node_version, '20.11.0');
+  });
+  it('handles .tool-versions', () => {
+    const r = versionFilesScanner.scan('nodejs 20.11.0\npython 3.12.2\n', '.tool-versions');
+    assert.deepEqual(r.signals.tool_versions, { nodejs: '20.11.0', python: '3.12.2' });
+  });
+  it('handles rust-toolchain.toml', () => {
+    const r = versionFilesScanner.scan('[toolchain]\nchannel = "stable"\n', 'rust-toolchain.toml');
+    assert.equal(r.signals.rust_toolchain, 'stable');
+  });
+});
+
+describe('pm_lockfiles scanner', () => {
+  it('maps each lockfile to its package manager', () => {
+    assert.equal(lockfileScanner.scan('', 'pnpm-lock.yaml').signals.detected_pm, 'pnpm');
+    assert.equal(lockfileScanner.scan('', 'yarn.lock').signals.detected_pm, 'yarn');
+    assert.equal(lockfileScanner.scan('', 'bun.lockb').signals.detected_pm, 'bun');
+    assert.equal(lockfileScanner.scan('', 'package-lock.json').signals.detected_pm, 'npm');
+    assert.equal(lockfileScanner.scan('', 'Cargo.lock').signals.detected_pm, 'cargo');
+    assert.equal(lockfileScanner.scan('', 'poetry.lock').signals.detected_pm, 'poetry');
+  });
+});
+
+describe('env_example scanner', () => {
+  it('extracts only KEY names, no values', () => {
+    const r = envScanner.scan(`
+# database
+DATABASE_URL=postgres://localhost/x
+REDIS_URL=redis://localhost
+
+# auth
+JWT_SECRET=your-secret-here
+`, '.env.example');
+    assert.deepEqual(r.signals.env_vars, ['DATABASE_URL', 'JWT_SECRET', 'REDIS_URL']);
+  });
+  it('refuses to read real .env', () => {
+    const r = envScanner.scan('SECRET=real_value', '.env');
+    assert.deepEqual(r, {});
+  });
+});
+
+describe('workspaces scanner', () => {
+  it('parses pnpm-workspace.yaml', () => {
+    const r = workspacesScanner.scan('packages:\n  - apps/*\n  - packages/*\n', 'pnpm-workspace.yaml');
+    assert.equal(r.signals.workspace.type, 'pnpm');
+    assert.deepEqual(r.signals.workspace.packages, ['apps/*', 'packages/*']);
+  });
+  it('detects turbo / nx presence', () => {
+    assert.equal(workspacesScanner.scan('{}', 'turbo.json').signals.monorepo_tool, 'turbo');
+    assert.equal(workspacesScanner.scan('{}', 'nx.json').signals.monorepo_tool, 'nx');
+  });
+});
+
+describe('framework_detect (derived)', () => {
+  it('detects Next.js from deps', () => {
+    const d = frameworkDetect.derive({
+      deps: [{ ecosystem: 'npm', name: 'next', version: '^15.0.0' }],
+      scripts: [], signals: {},
+    });
+    assert.equal(d.framework.name, 'next');
+    assert.equal(d.framework.version, '^15.0.0');
+  });
+  it('detects vitest test framework + prisma ORM', () => {
+    const d = frameworkDetect.derive({
+      deps: [
+        { ecosystem: 'npm', name: 'vitest', version: '^1.4.0' },
+        { ecosystem: 'npm', name: '@prisma/client', version: '^5.7.0' },
+      ],
+      scripts: [], signals: {},
+    });
+    assert.equal(d.test_framework.name, 'vitest');
+    assert.equal(d.orm.name, 'prisma');
+  });
+  it('prefers .nvmrc over engines for runtime', () => {
+    const d = frameworkDetect.derive({
+      deps: [], scripts: [],
+      signals: { node_version: '20.11.0', engines: { node: '>=18' } },
+    });
+    assert.equal(d.runtime.version, '20.11.0');
+  });
+  it('falls back to engines when no .nvmrc', () => {
+    const d = frameworkDetect.derive({
+      deps: [], scripts: [],
+      signals: { engines: { node: '>=18' } },
+    });
+    assert.equal(d.runtime.language, 'node');
+    assert.equal(d.runtime.version, '>=18');
+  });
+});
+
+describe('_common parsers', () => {
+  it('parseTomlLite handles nested sections', () => {
+    const t = signalsCommon.parseTomlLite('[a.b]\nkey = "v"\n');
+    assert.equal(t.a.b.key, 'v');
+  });
+  it('parseTomlLite handles inline tables', () => {
+    const t = signalsCommon.parseTomlLite('[dependencies]\ntokio = { version = "1", features = ["full"] }');
+    assert.equal(t.dependencies.tokio.version, '1');
+  });
+  it('parseEnvKeys returns only keys', () => {
+    const k = signalsCommon.parseEnvKeys('FOO=x\nexport BAR=y\n# skip\nINVALID\n');
+    assert.deepEqual(k, ['FOO', 'BAR']);
+  });
+});
+
+describe('signals end-to-end on a fixture tree', () => {
+  it('scans a mixed fixture directory', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-sig-'));
+    fs.writeFileSync(path.join(tmp, 'package.json'), JSON.stringify({
+      name: 'demo', dependencies: { next: '15.0.0' }, devDependencies: { vitest: '1.4.0' },
+      scripts: { test: 'vitest run' }, packageManager: 'pnpm@8.15.0',
+    }));
+    fs.writeFileSync(path.join(tmp, '.nvmrc'), '20.11.0\n');
+    fs.writeFileSync(path.join(tmp, '.env.example'), 'DB_URL=placeholder\nAPI_KEY=xxx\n');
+    fs.writeFileSync(path.join(tmp, 'pnpm-workspace.yaml'), 'packages:\n  - apps/*\n');
+
+    // Initialize brain for the fixture
+    const brain = require('../brain/index.cjs');
+    brain.initBrain(tmp);
+
+    const signals = require('../brain/signals/index.cjs');
+    const result = signals.scanAll(tmp);
+
+    assert.ok(result.manifests >= 4, `expected >=4 manifests, got ${result.manifests}`);
+    assert.ok(result.deps >= 2, `expected >=2 deps, got ${result.deps}`);
+    assert.ok(result.scripts >= 1);
+
+    const stack = brain.getProjectStack(tmp);
+    assert.equal(stack.framework && stack.framework.name, 'next');
+    assert.equal(stack.test_framework && stack.test_framework.name, 'vitest');
+    assert.equal(stack.package_manager, 'pnpm');
+    assert.equal(stack.runtime && stack.runtime.version, '20.11.0');
+    assert.equal(stack.workspace && stack.workspace.type, 'pnpm');
+
+    const deps = brain.getDependencies(tmp, { ecosystem: 'npm' });
+    assert.ok(deps.some(d => d.name === 'next'));
+    assert.ok(deps.some(d => d.name === 'vitest'));
+
+    const scripts = brain.getScripts(tmp);
+    assert.ok(scripts.some(s => s.name === 'test' && s.command === 'vitest run'));
+  });
+});
+
+describe('context-builder stack injection', () => {
+  it('emits <project_stack> block when brain has stack data', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-ctx-'));
+    fs.writeFileSync(path.join(tmp, 'package.json'), JSON.stringify({
+      name: 'demo', dependencies: { next: '15.0.0', react: '19.0.0' },
+    }));
+    fs.writeFileSync(path.join(tmp, '.nvmrc'), '20.11.0\n');
+
+    const brain = require('../brain/index.cjs');
+    brain.initBrain(tmp);
+    const signals = require('../brain/signals/index.cjs');
+    signals.scanAll(tmp);
+
+    const { buildFullContext } = require('../core/context-builder.cjs');
+    const ctx = buildFullContext(tmp, { affectedFiles: [], domain: 'frontend' });
+    assert.ok(ctx.includes('<project_stack>'), 'missing <project_stack>');
+    assert.ok(ctx.includes('next'), 'missing framework identity');
+    assert.ok(ctx.includes('node') || ctx.includes('runtime'), 'missing runtime');
+  });
+});
+
 describe('sfc extractor', () => {
   it('extracts Vue <script> block with line offsets', () => {
     const src = `<template>\n  <div>Hi</div>\n</template>\n<script>\nexport function greet() { return 1 }\n</script>`;

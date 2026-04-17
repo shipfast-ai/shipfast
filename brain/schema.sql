@@ -259,6 +259,32 @@ CREATE INDEX IF NOT EXISTS idx_seeds_status ON seeds(status);
 CREATE INDEX IF NOT EXISTS idx_seeds_domain ON seeds(domain);
 
 -- ============================================================
+-- PROJECT SIGNALS (v1.7.0): deps + scripts from manifest files
+-- Derived project-wide signals (framework, runtime, test framework, etc.)
+-- live in the `context` table under scope='project' with structured keys.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dependencies (
+  manifest_path TEXT NOT NULL,      -- 'package.json', 'apps/web/package.json', 'Cargo.toml'
+  ecosystem     TEXT NOT NULL,      -- 'npm' | 'cargo' | 'pypi' | 'go' | 'rubygems' | 'composer' | 'pubspec' | 'nuget' | 'hex'
+  name          TEXT NOT NULL,      -- 'react', 'serde', 'fastapi'
+  version       TEXT,               -- version range as written in manifest
+  kind          TEXT,               -- 'runtime' | 'dev' | 'peer' | 'optional' | 'workspace'
+  PRIMARY KEY (manifest_path, ecosystem, name, kind)
+);
+
+CREATE INDEX IF NOT EXISTS idx_deps_name ON dependencies(name);
+CREATE INDEX IF NOT EXISTS idx_deps_ecosystem ON dependencies(ecosystem);
+
+CREATE TABLE IF NOT EXISTS scripts (
+  manifest_path TEXT NOT NULL,
+  name          TEXT NOT NULL,      -- 'build', 'test', 'dev', 'lint'
+  command       TEXT NOT NULL,
+  source        TEXT DEFAULT 'package.json',  -- 'package.json' | 'Makefile' | 'justfile' | 'Cargo.toml'
+  PRIMARY KEY (manifest_path, name)
+);
+
+-- ============================================================
 -- MIGRATIONS TRACKING
 -- ============================================================
 
@@ -272,3 +298,4 @@ INSERT OR IGNORE INTO _migrations (version, name) VALUES (1, 'initial_schema');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (2, 'add_seeds_table');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (3, 'add_model_performance_table');
 INSERT OR IGNORE INTO _migrations (version, name) VALUES (4, 'add_context_index_and_cleanup');
+INSERT OR IGNORE INTO _migrations (version, name) VALUES (5, 'add_dependencies_and_scripts');
