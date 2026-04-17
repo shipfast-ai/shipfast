@@ -68,12 +68,41 @@ function extract(content, filePath) {
   push(PROTOCOL_RE, 'type', (x) => `defprotocol ${x[1]}`, 'type');
   push(IMPL_RE, 'type', (x) => `defimpl ${x[1]}`, 'type');
 
+  // Track aliases for cross-file call resolution. Elixir's `alias Mod.Sub`
+  // brings `Sub` into scope as a shorthand for `Mod.Sub`. `alias X.Y, as: Z`
+  // brings `Z` as the alias. `import Mod, only: [foo: 2]` brings bare `foo/2`.
+  const importedSymbols = {};
+  // Plain `alias Mod.Sub` (no `as:`) → Sub maps to Mod.Sub
+  const ALIAS_SIMPLE = /^\s*alias\s+([\w.]+)/gm;
+  const ALIAS_AS = /^\s*alias\s+([\w.]+)\s*,\s*as:\s*([\w.]+)/gm;
+  const IMPORT_ONLY = /^\s*import\s+([\w.]+)\s*,\s*only:\s*\[([^\]]+)\]/gm;
+
   IMPORT_RE.lastIndex = 0;
   while ((m = IMPORT_RE.exec(content)) !== null) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
+  ALIAS_SIMPLE.lastIndex = 0;
+  let ma;
+  while ((ma = ALIAS_SIMPLE.exec(content)) !== null) {
+    const fq = ma[1];
+    const short = fq.split('.').pop();
+    if (short) importedSymbols[short] = `elixir:${fq}`;
+  }
+  ALIAS_AS.lastIndex = 0;
+  while ((ma = ALIAS_AS.exec(content)) !== null) {
+    const fq = ma[1], alias = ma[2].split('.').pop();
+    if (alias) importedSymbols[alias] = `elixir:${fq}`;
+  }
+  IMPORT_ONLY.lastIndex = 0;
+  while ((ma = IMPORT_ONLY.exec(content)) !== null) {
+    const mod = ma[1];
+    for (const part of ma[2].split(',')) {
+      const name = part.trim().split(':')[0].trim();
+      if (/^[a-z_][\w?!]*$/.test(name)) importedSymbols[name] = `elixir:${mod}.${name}`;
+    }
+  }
 
-  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: ELIXIR_NON_CALL_KEYWORDS });
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols, filePath, emit, nonCallKeywords: ELIXIR_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

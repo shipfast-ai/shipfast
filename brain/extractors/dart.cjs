@@ -20,6 +20,10 @@ const MIXIN_RE = /\bmixin\s+(\w+)/g;
 const EXTENSION_RE = /\bextension\s+(\w+)/g;
 const TYPEDEF_RE = /\btypedef\s+(\w+)\s*=/g;
 const IMPORT_RE = /\bimport\s+['"]([^'"]+)['"]/g;
+// Capture names brought in via `show` clauses:
+//   import 'foo.dart' show A, B;
+//   import 'package:x/y.dart' as p show A, B;
+const IMPORT_SHOW_RE = /\bimport\s+['"]([^'"]+)['"](?:\s+as\s+\w+)?\s+show\s+([\w,\s]+);/g;
 
 const CONTROL = new Set(['if', 'while', 'for', 'switch', 'return', 'sizeof', 'catch', 'try', 'assert']);
 
@@ -79,7 +83,18 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
-  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: DART_NON_CALL_KEYWORDS });
+  // `show`-list symbols become callable as bare names; track them for cross-file calls.
+  const importedSymbols = {};
+  IMPORT_SHOW_RE.lastIndex = 0;
+  while ((m = IMPORT_SHOW_RE.exec(content)) !== null) {
+    const mod = m[1];
+    for (const part of m[2].split(',')) {
+      const name = part.trim();
+      if (/^[A-Za-z_]\w*$/.test(name)) importedSymbols[name] = `dart:${mod}`;
+    }
+  }
+
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols, filePath, emit, nonCallKeywords: DART_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

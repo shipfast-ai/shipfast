@@ -56,14 +56,36 @@ function extract(content, filePath) {
   push(TRAIT_RE, 'type', (m) => `trait ${m[1]}`, false);
   push(ENUM_RE, 'type', (m) => `enum ${m[1]}`, false);
 
+  const importedSymbols = {};
   IMPORT_RE.lastIndex = 0;
   let m;
   while ((m = IMPORT_RE.exec(content)) !== null) {
-    const spec = m[1].trim().split(/\s+/)[0].replace(/[{}]/g, '');
-    emit(`file:${filePath}`, `module:${spec}`, 'imports');
+    const raw = m[1].trim();
+    // Emit a module-level imports edge (legacy behaviour)
+    const modBase = raw.split(/[{.]/).filter(Boolean)[0];
+    if (modBase) emit(`file:${filePath}`, `module:${modBase}`, 'imports');
+
+    // Parse names: `pkg.{A, B => C, _}` or `pkg.Name` or `pkg.Name => Alias`
+    const groupMatch = raw.match(/^([\w.]+)\.\{([^}]+)\}$/);
+    const singleMatch = raw.match(/^([\w.]+)\.(\w+)(?:\s*=>\s*(\w+))?$/);
+    if (groupMatch) {
+      const pkg = groupMatch[1];
+      for (const part of groupMatch[2].split(',')) {
+        const p = part.trim();
+        const renamed = p.match(/^(\w+)\s*=>\s*(\w+)$/);
+        const bare = p.match(/^(\w+)$/);
+        if (renamed) importedSymbols[renamed[2]] = `scala:${pkg}.${renamed[1]}`;
+        else if (bare) importedSymbols[bare[1]] = `scala:${pkg}.${bare[1]}`;
+      }
+    } else if (singleMatch) {
+      const pkg = singleMatch[1];
+      const name = singleMatch[2];
+      const alias = singleMatch[3] || name;
+      importedSymbols[alias] = `scala:${pkg}.${name}`;
+    }
   }
 
-  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: SCALA_NON_CALL_KEYWORDS });
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols, filePath, emit, nonCallKeywords: SCALA_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 
