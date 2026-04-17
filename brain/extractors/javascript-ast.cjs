@@ -77,7 +77,11 @@ function extract(content, filePath, ctx) {
   // Traversal state
   const importedSymbols = {};      // local name → resolved target file
   const sameFileFns = new Map();   // name → fn node id
+  const sameFileClasses = new Set(); // class names declared in this file
+  const classMethods = new Map();  // `ClassName.method` → method node id
+  const localTypes = new Map();    // var name → ClassName (for receiver resolution)
   const pendingCalls = [];         // buffer: [{callerId, calleeName}] — flushed after full walk
+  const pendingMethodCalls = [];   // [{callerId, receiverVar, method}] — dispatched after walk
 
   // Walk the tree once, dispatching per node kind.
   function visit(n, currentFn /* node id of enclosing fn, or null */) {
@@ -94,10 +98,21 @@ function extract(content, filePath, ctx) {
             || kind === 'generator_function_declaration'
             || kind === 'generator_function') {
       const fnNode = handleFunction(n);
+      // If this is a method inside a class, record it under ClassName.method
+      // for method dispatch resolution.
+      if (fnNode && kind === 'method_definition') {
+        const enclosingClass = findEnclosingClass(n);
+        if (enclosingClass) {
+          const nameN = enclosingClass.childForFieldName && enclosingClass.childForFieldName('name');
+          if (nameN) classMethods.set(`${nameN.text}.${fnNode.name}`, fnNode.id);
+        }
+      }
       // Walk into body with this function as caller for `calls` edges.
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), fnNode ? fnNode.id : currentFn);
       return;
     } else if (kind === 'class_declaration') {
+      const nameN = n.childForFieldName && n.childForFieldName('name');
+      if (nameN) sameFileClasses.add(nameN.text);
       handleClass(n);
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
       return;
@@ -108,8 +123,10 @@ function extract(content, filePath, ctx) {
       handleCall(n, currentFn);
     } else if (kind === 'assignment_expression') {
       handleCjsExport(n);
+      handleMutate(n, currentFn);
     } else if (kind === 'variable_declarator') {
       handleRequire(n);
+      handleLocalType(n);
     }
 
     for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
@@ -312,14 +329,72 @@ function extract(content, filePath, ctx) {
     // the file).
     if (!currentFn) return;
     const callee = n.childForFieldName ? n.childForFieldName('function') : n.child(0);
-    if (!callee || callee.type !== 'identifier') return;
-    pendingCalls.push({ callerId: currentFn, calleeName: callee.text });
+    if (!callee) return;
+    if (callee.type === 'identifier') {
+      pendingCalls.push({ callerId: currentFn, calleeName: callee.text });
+      return;
+    }
+    // Method dispatch — `receiver.method(…)` where receiver is an identifier.
+    if (callee.type === 'member_expression') {
+      const obj = callee.childForFieldName ? callee.childForFieldName('object') : null;
+      const prop = callee.childForFieldName ? callee.childForFieldName('property') : null;
+      if (obj && obj.type === 'identifier' && prop && prop.type === 'property_identifier') {
+        pendingMethodCalls.push({
+          callerId: currentFn,
+          receiverVar: obj.text,
+          method: prop.text,
+        });
+      }
+    }
+  }
+
+  function handleLocalType(n) {
+    // `const x = new Foo(...)` → localTypes[x] = 'Foo'
+    const nameNode = n.childForFieldName && n.childForFieldName('name');
+    const value = n.childForFieldName && n.childForFieldName('value');
+    if (!nameNode || !value || nameNode.type !== 'identifier') return;
+    if (value.type === 'new_expression') {
+      const ctor = value.childForFieldName && value.childForFieldName('constructor');
+      if (ctor && ctor.type === 'identifier') {
+        localTypes.set(nameNode.text, ctor.text);
+      }
+    }
+  }
+
+  function handleMutate(n, currentFn) {
+    // `this.field = …` inside a method → mutates edge from method to variable.
+    if (!currentFn) return;
+    const left = n.childForFieldName ? n.childForFieldName('left') : n.child(0);
+    if (!left || left.type !== 'member_expression') return;
+    const obj = left.childForFieldName && left.childForFieldName('object');
+    const prop = left.childForFieldName && left.childForFieldName('property');
+    if (!obj || !prop || prop.type !== 'property_identifier') return;
+    if (obj.type === 'this') {
+      emit(currentFn, `variable:${filePath}:this.${prop.text}`, 'mutates');
+    } else if (obj.type === 'identifier' && obj.text === 'module' && prop.text === 'exports') {
+      // handled by handleCjsExport
+      return;
+    } else if (obj.type === 'identifier') {
+      // module-level var write — only emit if `obj` is a top-level identifier.
+      // Can't easily verify top-level-ness without scope tracking. Emit edges
+      // for named assignments; noise is acceptable at this resolution.
+      emit(currentFn, `variable:${filePath}:${obj.text}.${prop.text}`, 'mutates');
+    }
   }
 
   function findChild(n, type) {
     for (let i = 0; i < n.childCount; i++) {
       const c = n.child(i);
       if (c.type === type) return c;
+    }
+    return null;
+  }
+
+  function findEnclosingClass(n) {
+    let p = n.parent;
+    while (p) {
+      if (p.type === 'class_declaration' || p.type === 'class') return p;
+      p = p.parent;
     }
     return null;
   }
@@ -346,6 +421,17 @@ function extract(content, filePath, ctx) {
     }
     const targetFile = importedSymbols[calleeName];
     if (targetFile) emit(callerId, `fn:${targetFile}:${calleeName}`, 'calls');
+  }
+
+  // Method dispatch: x.method() where x was `new Foo()` and Foo is same-file.
+  // Emits a calls edge to fn:filePath:methodId via the qualified classMethods
+  // key. Limited to same-file receivers — cross-file/cross-module dispatch
+  // needs classpath / autoload awareness that's out of scope.
+  for (const { callerId, receiverVar, method } of pendingMethodCalls) {
+    const cls = localTypes.get(receiverVar);
+    if (!cls || !sameFileClasses.has(cls)) continue;
+    const methodId = classMethods.get(`${cls}.${method}`);
+    if (methodId && methodId !== callerId) emit(callerId, methodId, 'calls');
   }
 
   return { nodes, edges };
