@@ -1,5 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 
 // --- constants ---
 const constants = require('../core/constants.cjs');
@@ -1351,5 +1352,48 @@ describe('sfc extractor', () => {
     const src = '---\r\nimport L from \'../a.astro\'\r\nexport function g() {}\r\n---\r\n<L/>';
     const r = registry.extract('.astro', src, 'x.astro', {});
     assert.ok(has(r, 'function', 'g'));
+  });
+});
+
+// Packaging: ensures the CLI's install step copies every file the indexer
+// actually loads at runtime. Without this, a missing subdir (e.g.
+// brain/extractors/) would silently ship and only break at `shipfast init`.
+describe('cmdInstall packaging', () => {
+  const repoRoot = path.join(__dirname, '..');
+
+  it('installed indexer loads and runs without MODULE_NOT_FOUND', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-install-'));
+    try {
+      // Mirror what cmdInstall does: brain/ (+ extractors, signals) and core/
+      // sit as siblings under shipfast/, matching the on-disk install layout.
+      const sfDir = path.join(tmp, 'shipfast');
+      const brainDir = path.join(sfDir, 'brain');
+      const coreDir = path.join(sfDir, 'core');
+      fs.mkdirSync(brainDir, { recursive: true });
+      fs.mkdirSync(coreDir, { recursive: true });
+      for (const f of ['schema.sql', 'index.cjs', 'indexer.cjs']) {
+        fs.copyFileSync(path.join(repoRoot, 'brain', f), path.join(brainDir, f));
+      }
+      for (const sub of ['extractors', 'signals']) {
+        fs.cpSync(path.join(repoRoot, 'brain', sub), path.join(brainDir, sub), { recursive: true });
+      }
+      fs.cpSync(path.join(repoRoot, 'core'), coreDir, { recursive: true });
+
+      // Point the indexer at a throwaway git repo so it has something to scan.
+      const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-repo-'));
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      fs.writeFileSync(path.join(repo, 'a.js'), 'export function hi() {}\n');
+      execFileSync('git', ['add', '.'], { cwd: repo });
+      execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init'], { cwd: repo });
+
+      const out = execFileSync(process.execPath, [path.join(brainDir, 'indexer.cjs'), repo], {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
+      });
+      assert.match(out, /indexed/);
+
+      fs.rmSync(repo, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
