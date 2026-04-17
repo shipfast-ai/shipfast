@@ -47,7 +47,11 @@ function extract(content, filePath) {
   const root = tree.rootNode;
 
   const sameFileFns = new Map();
+  const sameFileClasses = new Set();
+  const classMethods = new Map();   // `ClassName.method` → method node id
+  const localTypes = new Map();      // var name → ClassName
   const pendingCalls = [];
+  const pendingMethodCalls = [];     // [{callerId, receiverVar, method}]
 
   function visit(n, currentFn) {
     const t = n.type;
@@ -55,6 +59,8 @@ function extract(content, filePath) {
     if (t === 'import_declaration') {
       handleImport(n);
     } else if (t === 'class_declaration' || t === 'record_declaration') {
+      const nn = n.childForFieldName && n.childForFieldName('name');
+      if (nn) sameFileClasses.add(nn.text);
       handleClass(n);
     } else if (t === 'interface_declaration') {
       handleInterface(n);
@@ -62,10 +68,19 @@ function extract(content, filePath) {
       handleEnum(n);
     } else if (t === 'method_declaration' || t === 'constructor_declaration') {
       const fnNode = handleMethod(n);
+      if (fnNode) {
+        const enclosing = findEnclosingClass(n);
+        const cnn = enclosing && enclosing.childForFieldName && enclosing.childForFieldName('name');
+        if (cnn) classMethods.set(`${cnn.text}.${fnNode.name}`, fnNode.id);
+      }
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), fnNode ? fnNode.id : currentFn);
       return;
     } else if (t === 'method_invocation') {
       handleCall(n, currentFn);
+    } else if (t === 'local_variable_declaration' || t === 'field_declaration') {
+      handleVarDecl(n);
+    } else if (t === 'assignment_expression') {
+      handleAssign(n, currentFn);
     }
 
     for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
@@ -151,17 +166,68 @@ function extract(content, filePath) {
     return fnNode;
   }
 
+  function findEnclosingClass(n) {
+    let p = n.parent;
+    while (p) {
+      if (p.type === 'class_declaration' || p.type === 'record_declaration') return p;
+      p = p.parent;
+    }
+    return null;
+  }
+
   function handleCall(n, currentFn) {
     if (!currentFn) return;
-    // `method_invocation` children: [object ".", name, arguments]. We want bare
-    // `foo(...)` where object is absent, or `this.foo(...)`.
     const nameNode = n.childForFieldName && n.childForFieldName('name');
     if (!nameNode) return;
     const name = nameNode.text;
     const obj = n.childForFieldName && n.childForFieldName('object');
-    // Skip chained calls like `x.y.z()` — can't resolve without type info.
-    if (obj && obj.type !== 'this') return;
-    pendingCalls.push({ callerId: currentFn, calleeName: name });
+    if (!obj || obj.type === 'this') {
+      pendingCalls.push({ callerId: currentFn, calleeName: name });
+      return;
+    }
+    // Dispatched method call: `x.method(...)`. Resolve x's type if tracked.
+    if (obj.type === 'identifier') {
+      pendingMethodCalls.push({
+        callerId: currentFn,
+        receiverVar: obj.text,
+        method: name,
+      });
+    }
+  }
+
+  function handleVarDecl(n) {
+    // `Foo x = new Foo();` — type is a child of the declaration.
+    const typeNode = n.childForFieldName && n.childForFieldName('type');
+    if (!typeNode) return;
+    const className = typeNode.text;
+    // Only track identifier-looking class names (skip primitives / arrays).
+    if (!/^[A-Z]\w*$/.test(className)) return;
+    for (let i = 0; i < n.childCount; i++) {
+      const c = n.child(i);
+      if (c.type === 'variable_declarator') {
+        const nameN = c.childForFieldName && c.childForFieldName('name');
+        if (nameN && nameN.type === 'identifier') {
+          localTypes.set(nameN.text, className);
+        }
+      }
+    }
+  }
+
+  function handleAssign(n, currentFn) {
+    if (!currentFn) return;
+    const left = n.childForFieldName && n.childForFieldName('left');
+    if (!left) return;
+    if (left.type === 'field_access') {
+      const obj = left.childForFieldName && left.childForFieldName('object');
+      const field = left.childForFieldName && left.childForFieldName('field');
+      if (obj && field) {
+        if (obj.type === 'this') {
+          emit(currentFn, `variable:${filePath}:this.${field.text}`, 'mutates');
+        } else if (obj.type === 'identifier') {
+          emit(currentFn, `variable:${filePath}:${obj.text}.${field.text}`, 'mutates');
+        }
+      }
+    }
   }
 
   visit(root, null);
@@ -175,6 +241,14 @@ function extract(content, filePath) {
     const sameFile = sameFileFns.get(calleeName);
     if (sameFile && sameFile !== callerId) { emit(callerId, sameFile, 'calls'); continue; }
     emit(callerId, `unresolved:${calleeName}`, 'calls');
+  }
+
+  // Method dispatch — x.method() where `Foo x = new Foo()` (same-file).
+  for (const { callerId, receiverVar, method } of pendingMethodCalls) {
+    const cls = localTypes.get(receiverVar);
+    if (!cls || !sameFileClasses.has(cls)) continue;
+    const methodId = classMethods.get(`${cls}.${method}`);
+    if (methodId && methodId !== callerId) emit(callerId, methodId, 'calls');
   }
 
   return { nodes, edges };
