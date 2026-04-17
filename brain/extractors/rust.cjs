@@ -29,6 +29,12 @@ const ENUM_RE = /(?:pub(?:\s*\([^)]*\))?\s+)?enum\s+(\w+)/g;
 const TRAIT_RE = /(?:pub(?:\s*\([^)]*\))?\s+)?trait\s+(\w+)/g;
 const TYPE_RE = /(?:pub(?:\s*\([^)]*\))?\s+)?type\s+(\w+)\s*=/g;
 const USE_RE = /(?:pub\s+)?(?:use|mod)\s+([A-Za-z_][\w:]*)/g;
+// Detailed use-path capture for cross-file call resolution:
+//   use crate::foo::bar;         → imports `bar` from crate::foo
+//   use crate::foo::bar as baz;  → imports `baz` (alias)
+//   use crate::foo::{a, b, c};   → imports a, b, c
+const USE_PATH_RE   = /\buse\s+([a-zA-Z_][\w:]*)::(\w+)(?:\s+as\s+(\w+))?\s*;/g;
+const USE_GROUP_RE  = /\buse\s+([a-zA-Z_][\w:]*)::\{([^}]+)\}\s*;/g;
 
 function resolveImport(fromFile, importPath /* , ctx */) {
   // Rust's module resolution requires crate layout; we just record the module path.
@@ -72,7 +78,31 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${um[1]}`, 'imports');
   }
 
-  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: RUST_NON_CALL_KEYWORDS });
+  // Cross-file call resolution via `use` paths. Rust modules don't map 1:1
+  // to files without Cargo knowledge, so we store the FQN (crate::mod::name)
+  // as the edge target. brain_impact/trace still traverses it as a string id.
+  const importedSymbols = {};
+  USE_PATH_RE.lastIndex = 0;
+  let up;
+  while ((up = USE_PATH_RE.exec(content)) !== null) {
+    const mod = up[1], name = up[2], alias = up[3] || up[2];
+    importedSymbols[alias] = `rust:${mod}::${name}`;
+  }
+  USE_GROUP_RE.lastIndex = 0;
+  while ((up = USE_GROUP_RE.exec(content)) !== null) {
+    const mod = up[1];
+    for (const part of up[2].split(',')) {
+      const p = part.trim();
+      if (!p) continue;
+      const asMatch = p.match(/^(\w+)\s+as\s+(\w+)$/);
+      const bare = p.match(/^(\w+)$/);
+      const name  = asMatch ? asMatch[1] : (bare && bare[1]);
+      const alias = asMatch ? asMatch[2] : name;
+      if (name) importedSymbols[alias] = `rust:${mod}::${name}`;
+    }
+  }
+
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols, filePath, emit, nonCallKeywords: RUST_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 
