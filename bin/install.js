@@ -231,6 +231,8 @@ function printDone(count) {
 function cmdInit() {
   const cwd = process.cwd();
   const fresh = process.argv.includes('--fresh');
+  // v2.0: --ast defaults ON. Pass --regex to force the legacy regex extractor path.
+  const useAst = !process.argv.includes('--regex');
 
   if (!fs.existsSync(path.join(cwd, '.git'))) {
     console.log(`${red}Not a git repo.${reset} Run this inside a git repository.\n`);
@@ -256,8 +258,9 @@ function cmdInit() {
   try {
     const args = [indexer, cwd];
     if (fresh) args.push('--fresh');
+    if (useAst) args.push('--ast');
     const out = safeRun(process.execPath, args, {
-      encoding: 'utf8', timeout: 120000, stdio: ['pipe', 'pipe', 'pipe']
+      encoding: 'utf8', timeout: 180000, stdio: ['pipe', 'pipe', 'pipe']
     });
     console.log(`${green}${out.trim()}${reset}`);
 

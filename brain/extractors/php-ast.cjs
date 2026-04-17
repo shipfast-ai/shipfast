@@ -53,7 +53,11 @@ function extract(content, filePath) {
 
   const importedSymbols = {};      // local name → 'php:FQN'
   const sameFileFns = new Map();   // name → fn id
+  const sameFileClasses = new Set();
+  const classMethods = new Map();  // `ClassName.method` → method node id
+  const localTypes = new Map();    // $var → ClassName (same-file)
   const pendingCalls = [];         // [{callerId, calleeName}]
+  const pendingMethodCalls = [];   // [{callerId, receiverVar, method}]
 
   function visit(n, currentFn) {
     const t = n.type;
@@ -61,6 +65,8 @@ function extract(content, filePath) {
     if (t === 'namespace_use_declaration' || t === 'use_declaration') {
       handleUse(n);
     } else if (t === 'class_declaration') {
+      const nn = n.childForFieldName && n.childForFieldName('name');
+      if (nn) sameFileClasses.add(nn.text);
       handleClass(n);
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
       return;
@@ -68,12 +74,21 @@ function extract(content, filePath) {
       handleTypeLike(n, t);
     } else if (t === 'function_definition' || t === 'method_declaration') {
       const fnNode = handleFunction(n);
+      if (fnNode && t === 'method_declaration') {
+        const enclosing = findEnclosingClass(n);
+        const cnn = enclosing && enclosing.childForFieldName && enclosing.childForFieldName('name');
+        if (cnn) classMethods.set(`${cnn.text}.${fnNode.name}`, fnNode.id);
+      }
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), fnNode ? fnNode.id : currentFn);
       return;
     } else if (t === 'function_call_expression') {
       handleCall(n, currentFn);
     } else if (t === 'scoped_call_expression' || t === 'member_call_expression') {
       handleDottedCall(n, currentFn);
+    } else if (t === 'object_creation_expression') {
+      handleObjectCreation(n);
+    } else if (t === 'assignment_expression') {
+      handleAssignment(n, currentFn);
     }
 
     for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
@@ -184,6 +199,47 @@ function extract(content, filePath) {
     pendingCalls.push({ callerId: currentFn, calleeName });
   }
 
+  function findEnclosingClass(n) {
+    let p = n.parent;
+    while (p) {
+      if (p.type === 'class_declaration') return p;
+      p = p.parent;
+    }
+    return null;
+  }
+
+  function handleObjectCreation(n) {
+    // `new Foo(...)` — look at the parent assignment_expression if any and
+    // bind the LHS variable to the class Foo.
+    const typeNode = findChild(n, 'name') || findChild(n, 'qualified_name');
+    if (!typeNode) return;
+    const className = typeNode.text.replace(/^\\+/, '');
+    const parent = n.parent;
+    if (!parent || parent.type !== 'assignment_expression') return;
+    const left = parent.childForFieldName && parent.childForFieldName('left');
+    if (!left || left.type !== 'variable_name') return;
+    // `$x` text is '$x' — store under '$x' so `$x->method()` resolves.
+    localTypes.set(left.text, className);
+  }
+
+  function handleAssignment(n, currentFn) {
+    // `$this->field = expr` inside a method → mutates edge.
+    if (!currentFn) return;
+    const left = n.childForFieldName && n.childForFieldName('left');
+    if (!left) return;
+    if (left.type === 'member_access_expression') {
+      const obj = left.childForFieldName && left.childForFieldName('object');
+      const name = left.childForFieldName && left.childForFieldName('name');
+      if (!name) return;
+      const field = name.text;
+      if (obj && obj.type === 'variable_name' && obj.text === '$this') {
+        emit(currentFn, `variable:${filePath}:this.${field}`, 'mutates');
+      } else if (obj && obj.type === 'variable_name') {
+        emit(currentFn, `variable:${filePath}:${obj.text}.${field}`, 'mutates');
+      }
+    }
+  }
+
   function handleDottedCall(n, currentFn) {
     if (!currentFn) return;
     // `$this->method(...)` or `Class::method(...)` — resolve `method` against
@@ -200,8 +256,15 @@ function extract(content, filePath) {
       emit(currentFn, `fn:${fqn}::${calleeName}`, 'calls');
       return;
     }
-    // Bare `$x->foo()` — we don't know $x's class statically. Emit as abstract.
-    // Keep silent to avoid noise.
+    // `$x->foo()` — try to resolve $x's class via localTypes.
+    const obj2 = n.childForFieldName && n.childForFieldName('object');
+    if (obj2 && obj2.type === 'variable_name') {
+      pendingMethodCalls.push({
+        callerId: currentFn,
+        receiverVar: obj2.text,
+        method: calleeName,
+      });
+    }
   }
 
   visit(root, null);
@@ -217,6 +280,14 @@ function extract(content, filePath) {
     const targetFqn = importedSymbols[calleeName];
     if (targetFqn) { emit(callerId, `${targetFqn}::${calleeName}`, 'calls'); continue; }
     emit(callerId, `unresolved:${calleeName}`, 'calls');
+  }
+
+  // Method dispatch — `$x->m()` where $x = new Foo() (same-file only).
+  for (const { callerId, receiverVar, method } of pendingMethodCalls) {
+    const cls = localTypes.get(receiverVar);
+    if (!cls || !sameFileClasses.has(cls)) continue;
+    const methodId = classMethods.get(`${cls}.${method}`);
+    if (methodId && methodId !== callerId) emit(callerId, methodId, 'calls');
   }
 
   return { nodes, edges };

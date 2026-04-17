@@ -432,7 +432,9 @@ if (require.main === module) (async () => {
   const args = process.argv.slice(2);
   const changedOnly = args.includes('--changed-only');
   const fresh = args.includes('--fresh');
-  const useAst = args.includes('--ast');
+  // v2.0: AST mode is default. --regex opts out to the legacy path.
+  // --ast still works for explicit opt-in (no-op when already default).
+  const useAst = !args.includes('--regex');
   const cwd = args.find(a => !a.startsWith('-')) || process.cwd();
 
   // --fresh flag: delete existing brain.db for full reindex
