@@ -10,7 +10,11 @@
 
 'use strict';
 
-const { hashContent, findBraceBlock, makeEdgeEmitter, stripBlockComments } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, stripBlockComments, emitCalls } = require('./_common.cjs');
+const CPP_NON_CALL_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'return', 'break', 'continue', 'goto', 'default', 'sizeof', 'typedef', 'struct', 'union', 'enum', 'static', 'extern', 'const', 'volatile', 'inline', 'int', 'char', 'float', 'double', 'void', 'long', 'short', 'signed', 'unsigned', 'printf', 'scanf', 'malloc', 'free', 'namespace', 'class', 'public', 'private', 'protected', 'virtual', 'override', 'template', 'typename', 'using', 'auto', 'decltype', 'nullptr', 'delete', 'new', 'this', 'throw', 'try', 'catch', 'std', 'cout', 'cin', 'endl', 'make_unique', 'make_shared', 'move', 'forward', 'static_cast', 'dynamic_cast', 'reinterpret_cast', 'const_cast', 'true', 'false'
+]);
+
 
 const EXTENSIONS = ['.cpp', '.cc', '.hpp', '.cxx'];
 
@@ -92,6 +96,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'uses');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: CPP_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

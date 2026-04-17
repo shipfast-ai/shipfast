@@ -8,7 +8,11 @@
 
 'use strict';
 
-const { hashContent, findBraceBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+const SCALA_NON_CALL_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'match', 'case', 'val', 'var', 'def', 'class', 'object', 'trait', 'package', 'import', 'return', 'throw', 'try', 'catch', 'finally', 'new', 'this', 'super', 'override', 'private', 'protected', 'implicit', 'abstract', 'sealed', 'final', 'lazy', 'yield', 'with', 'extends', 'println', 'print', 'type', 'forSome', 'true', 'false', 'null', 'Nothing', 'Any', 'AnyRef', 'AnyVal', 'String', 'Int', 'Long', 'Boolean', 'Seq', 'List', 'Set', 'Map', 'Option', 'Some', 'None'
+]);
+
 
 const EXTENSIONS = ['.scala', '.sc'];
 
@@ -59,6 +63,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${spec}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: SCALA_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

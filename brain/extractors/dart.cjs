@@ -5,7 +5,11 @@
 
 'use strict';
 
-const { hashContent, findBraceBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+const DART_NON_CALL_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default', 'break', 'continue', 'return', 'try', 'catch', 'finally', 'throw', 'rethrow', 'assert', 'class', 'extends', 'implements', 'mixin', 'abstract', 'final', 'const', 'var', 'void', 'dynamic', 'import', 'export', 'part', 'library', 'new', 'this', 'super', 'static', 'get', 'set', 'operator', 'typedef', 'late', 'required', 'true', 'false', 'null', 'print', 'in', 'is', 'as', 'on', 'Future', 'Stream', 'List', 'Map', 'Set', 'String', 'int'
+]);
+
 
 const EXTENSIONS = ['.dart'];
 
@@ -75,6 +79,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: DART_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

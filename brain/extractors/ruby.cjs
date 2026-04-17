@@ -8,7 +8,11 @@
 
 'use strict';
 
-const { hashContent, findKeywordBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findKeywordBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+const RUBY_NON_CALL_KEYWORDS = new Set([
+  'if', 'unless', 'while', 'until', 'case', 'when', 'then', 'else', 'elsif', 'end', 'def', 'class', 'module', 'begin', 'rescue', 'ensure', 'return', 'yield', 'lambda', 'proc', 'require', 'require_relative', 'load', 'puts', 'print', 'p', 'pp', 'raise', 'loop', 'for', 'do', 'in', 'and', 'or', 'not', 'true', 'false', 'nil', 'self', 'super', 'respond_to', 'send', 'method', 'Array', 'Hash', 'String', 'Integer', 'Symbol'
+]);
+
 
 const EXTENSIONS = ['.rb'];
 
@@ -56,6 +60,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: RUBY_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

@@ -10,7 +10,16 @@
 
 const fs = require('fs');
 const path = require('path');
-const { hashContent, findBraceBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+
+const RUST_NON_CALL_KEYWORDS = new Set([
+  'if','else','for','while','loop','match','let','const','fn','struct','impl','enum',
+  'trait','mod','use','pub','return','unsafe','move','ref','as','type','where','async',
+  'await','dyn','self','Self','super','crate','in','true','false','static','mut',
+  'Box','Vec','Option','Some','None','Result','Ok','Err','String','println','print',
+  'vec','format','write','writeln','panic','assert','debug_assert','unreachable',
+  'todo','unimplemented','eprintln','dbg','drop','break','continue',
+]);
 
 const EXTENSIONS = ['.rs'];
 
@@ -63,6 +72,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${um[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: RUST_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

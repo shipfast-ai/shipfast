@@ -8,7 +8,11 @@
 
 'use strict';
 
-const { hashContent, findKeywordBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findKeywordBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+const LUA_NON_CALL_KEYWORDS = new Set([
+  'if', 'elseif', 'else', 'then', 'for', 'while', 'do', 'repeat', 'until', 'function', 'local', 'return', 'break', 'end', 'in', 'nil', 'true', 'false', 'and', 'or', 'not', 'require', 'print', 'string', 'table', 'math', 'io', 'pairs', 'ipairs', 'tostring', 'tonumber', 'type', 'setmetatable', 'getmetatable', 'assert', 'error', 'pcall', 'xpcall', 'next'
+]);
+
 
 const EXTENSIONS = ['.lua'];
 
@@ -48,6 +52,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: LUA_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

@@ -5,7 +5,11 @@
 
 'use strict';
 
-const { hashContent, findBraceBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+const SWIFT_NON_CALL_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'repeat', 'switch', 'case', 'default', 'guard', 'let', 'var', 'func', 'class', 'struct', 'enum', 'protocol', 'extension', 'return', 'throw', 'throws', 'try', 'catch', 'defer', 'in', 'import', 'public', 'private', 'internal', 'open', 'fileprivate', 'final', 'static', 'override', 'init', 'self', 'Self', 'super', 'nil', 'true', 'false', 'print', 'as', 'is', 'where', 'do', 'break', 'continue', 'fallthrough', 'inout', 'lazy', 'unowned', 'weak'
+]);
+
 
 const EXTENSIONS = ['.swift'];
 
@@ -61,6 +65,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: SWIFT_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

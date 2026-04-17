@@ -7,7 +7,11 @@
 
 'use strict';
 
-const { hashContent, findKeywordBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findKeywordBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+const ELIXIR_NON_CALL_KEYWORDS = new Set([
+  'if', 'unless', 'case', 'when', 'cond', 'with', 'do', 'end', 'def', 'defp', 'defmodule', 'defprotocol', 'defimpl', 'defmacro', 'defguard', 'use', 'alias', 'import', 'require', 'try', 'rescue', 'catch', 'throw', 'raise', 'else', 'after', 'fn', 'in', 'and', 'or', 'not', 'true', 'false', 'nil', 'IO', 'Enum', 'Map', 'List', 'String', 'Integer', 'Atom', 'receive', 'send', 'spawn', 'self', '__MODULE__', 'return'
+]);
+
 
 const EXTENSIONS = ['.ex', '.exs'];
 
@@ -69,6 +73,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: ELIXIR_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

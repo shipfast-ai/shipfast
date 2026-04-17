@@ -5,7 +5,14 @@
 
 'use strict';
 
-const { hashContent, findBraceBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+
+const GO_NON_CALL_KEYWORDS = new Set([
+  'if','else','for','switch','case','defer','go','select','chan','range','return',
+  'break','continue','func','type','var','const','struct','interface','map','import',
+  'package','make','new','len','cap','append','copy','print','println','panic','recover',
+  'nil','true','false','goto','fallthrough',
+]);
 
 const EXTENSIONS = ['.go'];
 
@@ -76,6 +83,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: GO_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 

@@ -11,7 +11,11 @@
 
 'use strict';
 
-const { hashContent, findBraceBlock, makeEdgeEmitter, stripBlockComments } = require('./_common.cjs');
+const { hashContent, findBraceBlock, makeEdgeEmitter, stripBlockComments, emitCalls } = require('./_common.cjs');
+const C_NON_CALL_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'return', 'break', 'continue', 'goto', 'default', 'sizeof', 'typedef', 'struct', 'union', 'enum', 'static', 'extern', 'const', 'volatile', 'inline', 'register', 'int', 'char', 'float', 'double', 'void', 'long', 'short', 'signed', 'unsigned', 'printf', 'scanf', 'malloc', 'free', 'memcpy', 'strcpy', 'strlen', 'NULL'
+]);
+
 
 const EXTENSIONS = ['.c', '.h'];
 
@@ -92,6 +96,7 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  emitCalls({ content, lines, fnNodes: nodes, importedSymbols: {}, filePath, emit, nonCallKeywords: C_NON_CALL_KEYWORDS });
   return { nodes, edges };
 }
 
