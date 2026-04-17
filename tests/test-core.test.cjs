@@ -653,6 +653,154 @@ describe('fsharp extractor', () => {
   });
 });
 
+// ============================================================
+// Installer: per-tool MCP config serializers
+// ============================================================
+
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const installer = require('../bin/install.js');
+
+function mkInstallTmp(prefix) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // Stub the shipfast/mcp/server.cjs binary path that writers reference
+  fs.mkdirSync(path.join(root, 'shipfast', 'mcp'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'shipfast', 'mcp', 'server.cjs'), '// stub');
+  return root;
+}
+
+describe('writeCursorMcpConfig', () => {
+  it('writes mcp.json with shipfast-brain entry', () => {
+    const dir = mkInstallTmp('sf-cursor-');
+    installer.writeCursorMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp.json'), 'utf8'));
+    assert.ok(cfg.mcpServers['shipfast-brain']);
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+    assert.ok(cfg.mcpServers['shipfast-brain'].args[0].endsWith('server.cjs'));
+  });
+  it('preserves existing mcpServers entries', () => {
+    const dir = mkInstallTmp('sf-cursor-');
+    fs.writeFileSync(path.join(dir, 'mcp.json'),
+      JSON.stringify({ mcpServers: { other: { command: 'foo' } } }));
+    installer.writeCursorMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp.json'), 'utf8'));
+    assert.equal(cfg.mcpServers.other.command, 'foo');
+    assert.ok(cfg.mcpServers['shipfast-brain']);
+  });
+  it('migrates stale shipfast-brain from settings.json', () => {
+    const dir = mkInstallTmp('sf-cursor-');
+    fs.writeFileSync(path.join(dir, 'settings.json'),
+      JSON.stringify({ editor: { fontSize: 14 }, mcpServers: { 'shipfast-brain': { command: 'stale' }, other: { command: 'keep' } } }));
+    installer.writeCursorMcpConfig(dir);
+    const legacy = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.equal(legacy.editor.fontSize, 14);                     // untouched
+    assert.ok(!legacy.mcpServers || !legacy.mcpServers['shipfast-brain']); // migrated away
+    assert.ok(legacy.mcpServers && legacy.mcpServers.other);      // other entry kept
+  });
+});
+
+describe('writeWindsurfMcpConfig', () => {
+  it('writes mcp_config.json under the Windsurf directory', () => {
+    const dir = mkInstallTmp('sf-windsurf-');
+    installer.writeWindsurfMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp_config.json'), 'utf8'));
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+  });
+  it('preserves existing entries', () => {
+    const dir = mkInstallTmp('sf-windsurf-');
+    fs.writeFileSync(path.join(dir, 'mcp_config.json'),
+      JSON.stringify({ mcpServers: { keeper: { command: 'x' } } }));
+    installer.writeWindsurfMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp_config.json'), 'utf8'));
+    assert.ok(cfg.mcpServers.keeper);
+    assert.ok(cfg.mcpServers['shipfast-brain']);
+  });
+});
+
+describe('writeCodexMcpConfig', () => {
+  it('writes a [mcp_servers.shipfast-brain] TOML section to config.toml', () => {
+    const dir = mkInstallTmp('sf-codex-');
+    installer.writeCodexMcpConfig(dir);
+    const out = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
+    assert.ok(out.includes('[mcp_servers.shipfast-brain]'));
+    assert.ok(out.includes('command = "node"'));
+    assert.ok(/args = \[".*server\.cjs"\]/.test(out));
+  });
+  it('preserves unrelated TOML sections', () => {
+    const dir = mkInstallTmp('sf-codex-');
+    fs.writeFileSync(path.join(dir, 'config.toml'),
+      '[profile.default]\nmodel = "gpt-5"\n\n[mcp_servers.other]\ncommand = "foo"\n');
+    installer.writeCodexMcpConfig(dir);
+    const out = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
+    assert.ok(out.includes('[profile.default]'));
+    assert.ok(out.includes('model = "gpt-5"'));
+    assert.ok(out.includes('[mcp_servers.other]'));
+    assert.ok(out.includes('[mcp_servers.shipfast-brain]'));
+  });
+  it('replaces an old shipfast-brain section instead of duplicating', () => {
+    const dir = mkInstallTmp('sf-codex-');
+    fs.writeFileSync(path.join(dir, 'config.toml'),
+      '[mcp_servers.shipfast-brain]\ncommand = "old"\nargs = ["/old"]\n\n[other]\nkey = "v"\n');
+    installer.writeCodexMcpConfig(dir);
+    const out = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
+    const sections = out.match(/\[mcp_servers\.shipfast-brain\]/g) || [];
+    assert.equal(sections.length, 1);
+    assert.ok(!out.includes('command = "old"'));
+    assert.ok(out.includes('[other]'));
+  });
+});
+
+describe('cleanMcpJson', () => {
+  it('removes shipfast-brain but keeps other mcpServers entries', () => {
+    const dir = mkInstallTmp('sf-clean-');
+    const fp = path.join(dir, 'mcp.json');
+    fs.writeFileSync(fp, JSON.stringify({ mcpServers: { 'shipfast-brain': {}, kept: { a: 1 } } }));
+    installer.cleanMcpJson(fp);
+    const after = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    assert.ok(!after.mcpServers['shipfast-brain']);
+    assert.ok(after.mcpServers.kept);
+  });
+  it('deletes mcpServers key if it becomes empty', () => {
+    const dir = mkInstallTmp('sf-clean-');
+    const fp = path.join(dir, 'mcp.json');
+    fs.writeFileSync(fp, JSON.stringify({ other: 1, mcpServers: { 'shipfast-brain': {} } }));
+    installer.cleanMcpJson(fp);
+    const after = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    assert.ok(!after.mcpServers);
+    assert.equal(after.other, 1);
+  });
+  it('is a no-op when no shipfast-brain entry exists', () => {
+    const dir = mkInstallTmp('sf-clean-');
+    const fp = path.join(dir, 'mcp.json');
+    const original = JSON.stringify({ mcpServers: { kept: { a: 1 } } });
+    fs.writeFileSync(fp, original);
+    installer.cleanMcpJson(fp);
+    assert.equal(fs.readFileSync(fp, 'utf8'), original);
+  });
+});
+
+describe('cleanCodexToml', () => {
+  it('strips shipfast-brain section, keeps others', () => {
+    const dir = mkInstallTmp('sf-clean-codex-');
+    const fp = path.join(dir, 'config.toml');
+    fs.writeFileSync(fp,
+      '[profile.default]\nmodel = "gpt-5"\n\n[mcp_servers.shipfast-brain]\ncommand = "node"\nargs = ["/x"]\n\n[mcp_servers.other]\ncommand = "foo"\n');
+    installer.cleanCodexToml(fp);
+    const after = fs.readFileSync(fp, 'utf8');
+    assert.ok(!after.includes('shipfast-brain'));
+    assert.ok(after.includes('[profile.default]'));
+    assert.ok(after.includes('[mcp_servers.other]'));
+  });
+  it('removes the file entirely if nothing else is left', () => {
+    const dir = mkInstallTmp('sf-clean-codex-');
+    const fp = path.join(dir, 'config.toml');
+    fs.writeFileSync(fp, '[mcp_servers.shipfast-brain]\ncommand = "node"\nargs = ["/x"]\n');
+    installer.cleanCodexToml(fp);
+    assert.equal(fs.existsSync(fp), false);
+  });
+});
+
 describe('sfc extractor', () => {
   it('extracts Vue <script> block with line offsets', () => {
     const src = `<template>\n  <div>Hi</div>\n</template>\n<script>\nexport function greet() { return 1 }\n</script>`;

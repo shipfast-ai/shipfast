@@ -177,8 +177,14 @@ function installFor(key, runtime) {
   } else if (runtime.name === 'Copilot') {
     writeInstruction(path.join(dir, 'copilot-instructions.md'));
   } else if (runtime.name === 'Cursor') {
-    writeMcpConfig(dir);
+    writeCursorMcpConfig(dir);
     writeInstruction(path.join(dir, 'rules'));
+  } else if (runtime.name === 'Codex') {
+    writeCodexMcpConfig(dir);
+    writeInstruction(path.join(dir, 'AGENTS.md'));
+  } else if (runtime.name === 'Windsurf') {
+    writeWindsurfMcpConfig(dir);
+    writeInstruction(path.join(dir, 'AGENTS.md'));
   } else {
     writeInstruction(path.join(dir, 'AGENTS.md'));
   }
@@ -659,6 +665,12 @@ function cmdUninstall() {
       }
       // Clean settings.json hooks (#18: remove empty arrays too)
       cleanSettings(dir);
+      // Remove shipfast-brain from mcpServers in settings.json (claude-compat)
+      cleanMcpJson(path.join(dir, 'settings.json'));
+      // Clean the dedicated MCP config files for Cursor / Windsurf / Codex
+      cleanMcpJson(path.join(dir, 'mcp.json'));
+      cleanMcpJson(path.join(dir, 'mcp_config.json'));
+      cleanCodexToml(path.join(dir, 'config.toml'));
       // Clean instruction files (CLAUDE.md, AGENTS.md, etc.)
       cleanInstructionFile(path.join(dir, 'CLAUDE.md'));
       cleanInstructionFile(path.join(dir, 'AGENTS.md'));
@@ -781,6 +793,7 @@ function writeSettings(dir, hooksDir) {
   fs.writeFileSync(sp, JSON.stringify(s, null, 2));
 }
 
+// Claude Code / OpenCode / Kilo: user-level MCP lives in settings.json.mcpServers.
 function writeMcpConfig(dir) {
   const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
   const settingsPath = path.join(dir, 'settings.json');
@@ -798,6 +811,89 @@ function writeMcpConfig(dir) {
   fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2));
 }
 
+// Cursor: MCP config lives in its own file, NOT settings.json (settings.json is IDE config).
+// Also migrates any stale shipfast-brain entry that was accidentally written to settings.json
+// by earlier ShipFast versions (<= 1.6.0).
+function writeCursorMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const mcpPath = path.join(dir, 'mcp.json');
+  let s = {};
+  if (fs.existsSync(mcpPath)) { try { s = JSON.parse(fs.readFileSync(mcpPath, 'utf8')); } catch {} }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(mcpPath, JSON.stringify(s, null, 2));
+
+  // Migration: remove stale shipfast-brain from settings.json if present (<=1.6.0 bug)
+  const settingsPath = path.join(dir, 'settings.json');
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const legacy = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      if (legacy && legacy.mcpServers && legacy.mcpServers['shipfast-brain']) {
+        delete legacy.mcpServers['shipfast-brain'];
+        if (Object.keys(legacy.mcpServers).length === 0) delete legacy.mcpServers;
+        fs.writeFileSync(settingsPath, JSON.stringify(legacy, null, 2));
+      }
+    } catch {}
+  }
+}
+
+// Windsurf: MCP config lives at ~/.codeium/windsurf/mcp_config.json with {"mcpServers": {...}}.
+function writeWindsurfMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const mcpPath = path.join(dir, 'mcp_config.json');
+  let s = {};
+  if (fs.existsSync(mcpPath)) { try { s = JSON.parse(fs.readFileSync(mcpPath, 'utf8')); } catch {} }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(mcpPath, JSON.stringify(s, null, 2));
+}
+
+// Codex: TOML at ~/.codex/config.toml. We manage a single named section
+// [mcp_servers.shipfast-brain]; everything else in the file is preserved verbatim.
+function writeCodexMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const tomlPath = path.join(dir, 'config.toml');
+  let existing = '';
+  if (fs.existsSync(tomlPath)) {
+    existing = fs.readFileSync(tomlPath, 'utf8');
+  }
+  existing = removeCodexShipfastSection(existing);
+  const block = [
+    '[mcp_servers.shipfast-brain]',
+    'command = "node"',
+    'args = ' + JSON.stringify([serverPath]),
+    ''
+  ].join('\n');
+  const prefix = existing.trimEnd();
+  const out = prefix ? prefix + '\n\n' + block : block;
+  fs.writeFileSync(tomlPath, out);
+}
+
+// Strip our [mcp_servers.shipfast-brain] TOML section (and its body) from `src`,
+// preserving everything around it. Body ends at the next section header or EOF.
+function removeCodexShipfastSection(src) {
+  const lines = src.split('\n');
+  const out = [];
+  let skipping = false;
+  for (const line of lines) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*$/);
+    if (header) {
+      skipping = header[1].trim() === 'mcp_servers.shipfast-brain';
+      if (skipping) continue;
+    }
+    if (!skipping) out.push(line);
+  }
+  return out.join('\n');
+}
+
 function writeInstruction(filePath) {
   const marker = '<!-- ShipFast -->';
   const close = '<!-- /ShipFast -->';
@@ -812,6 +908,33 @@ function writeInstruction(filePath) {
   }
   content = content.trimEnd() + '\n\n' + block + '\n';
   fs.writeFileSync(filePath, content);
+}
+
+// Remove shipfast-brain from any JSON file that has {mcpServers: {...}}.
+// Preserves every other mcpServers entry. If mcpServers becomes empty, removes the key.
+function cleanMcpJson(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const s = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!s || !s.mcpServers || !s.mcpServers['shipfast-brain']) return;
+    delete s.mcpServers['shipfast-brain'];
+    if (Object.keys(s.mcpServers).length === 0) delete s.mcpServers;
+    fs.writeFileSync(filePath, JSON.stringify(s, null, 2));
+  } catch {}
+}
+
+// Remove [mcp_servers.shipfast-brain] section from Codex config.toml on uninstall.
+function cleanCodexToml(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const src = fs.readFileSync(filePath, 'utf8');
+    const cleaned = removeCodexShipfastSection(src).trimEnd() + '\n';
+    if (cleaned.trim() === '') {
+      fs.unlinkSync(filePath);
+    } else if (cleaned !== src) {
+      fs.writeFileSync(filePath, cleaned);
+    }
+  } catch {}
 }
 
 // Remove ShipFast block from instruction files during uninstall
@@ -874,4 +997,15 @@ function copy(rel, dest) {
   if (fs.existsSync(src)) fs.copyFileSync(src, dest);
 }
 
-main();
+// Export serializers for unit tests — the CLI `main()` still runs when executed directly.
+module.exports = {
+  writeMcpConfig,
+  writeCursorMcpConfig,
+  writeWindsurfMcpConfig,
+  writeCodexMcpConfig,
+  removeCodexShipfastSection,
+  cleanMcpJson,
+  cleanCodexToml,
+};
+
+if (require.main === module) main();
