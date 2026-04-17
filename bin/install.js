@@ -671,8 +671,9 @@ function cmdUpdate() {
     safeRun('npm', ['install', '-g', '@shipfast-ai/shipfast@latest'], {
       encoding: 'utf8', stdio: 'inherit'
     });
-    console.log(`\n${cyan}Re-detecting runtimes...${reset}\n`);
-    cmdInstall();
+    // Re-exec the freshly installed binary so the new version's code + banner run
+    // (the current Node process is still the old version in memory).
+    safeRun(process.argv[0], [process.argv[1], 'install'], { stdio: 'inherit' });
   } catch {
     console.log(`${yellow}Auto-update failed.${reset} Run: npm i -g @shipfast-ai/shipfast@latest\n`);
   }
