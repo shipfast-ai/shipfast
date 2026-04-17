@@ -253,16 +253,22 @@ function indexCodebase(cwd, opts = {}) {
   }
 
   // AST mode: the caller is responsible for pre-awaiting `ast.preload([...])`
-  // before calling indexCodebase (see the CLI entry below). Here we just pick
-  // the AST extractor for JS-family extensions.
-  let astJs = null;
+  // before calling indexCodebase (see the CLI entry below). Here we build an
+  // ext → AST-extractor map so the per-file dispatch below can pick it cleanly.
+  let astExtByExt = null;
   if (useAst) {
-    try {
-      astJs = require('./extractors/javascript-ast.cjs');
-      if (verbose) console.log('AST mode enabled for JavaScript/TypeScript');
-    } catch (err) {
-      if (verbose) console.log('AST mode load failed (' + err.message + ') — falling back to regex');
-      astJs = null;
+    astExtByExt = {};
+    for (const mod of ['./extractors/javascript-ast.cjs', './extractors/php-ast.cjs']) {
+      try {
+        const ex = require(mod);
+        for (const e of ex.extensions) astExtByExt[e] = ex;
+      } catch (err) {
+        if (verbose) console.log('AST extractor failed to load: ' + mod + ' (' + err.message + ')');
+      }
+    }
+    if (verbose) {
+      const langs = [...new Set(Object.values(astExtByExt).map(x => x.GRAMMAR))].join(', ');
+      console.log('AST mode enabled for: ' + langs);
     }
   }
 
@@ -321,7 +327,7 @@ function indexCodebase(cwd, opts = {}) {
       // everything else continues to use the regex registry.
       const ext = path.extname(file);
       let extractor = registry.getExtractor(ext);
-      if (astJs && astJs.extensions.includes(ext)) extractor = astJs;
+      if (astExtByExt && astExtByExt[ext]) extractor = astExtByExt[ext];
       const ctx = { cwd, aliases: getConfigFor(extractor) };
       const result = extractor ? extractor.extract(content, relPath, ctx) : { nodes: [], edges: [] };
 
@@ -420,8 +426,15 @@ if (require.main === module) (async () => {
   if (useAst) {
     try {
       const astHelper = require('./extractors/_ast.cjs');
-      const astJs = require('./extractors/javascript-ast.cjs');
-      await astHelper.preload(astJs.GRAMMARS_USED || [astJs.GRAMMAR]);
+      const grammars = [];
+      for (const mod of ['./extractors/javascript-ast.cjs', './extractors/php-ast.cjs']) {
+        try {
+          const ex = require(mod);
+          if (ex.GRAMMARS_USED) grammars.push(...ex.GRAMMARS_USED);
+          else if (ex.GRAMMAR) grammars.push(ex.GRAMMAR);
+        } catch {}
+      }
+      await astHelper.preload([...new Set(grammars)]);
     } catch (err) {
       console.log('AST preload failed (' + err.message + ') — continuing with regex');
     }
