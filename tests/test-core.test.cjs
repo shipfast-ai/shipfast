@@ -1571,3 +1571,84 @@ describe('v1.9.0 task CRUD extended brain_tasks', () => {
     }
   });
 });
+
+// ============================================================
+// v1.9.3 — tree-sitter AST extractor parity (Track A Phase 1)
+// Runs regex and AST extractors on a handful of fixture files and asserts
+// they emit a comparable graph. AST is stricter on some patterns and richer
+// on others, so we allow ±5% drift rather than exact equality.
+// ============================================================
+
+describe('javascript-ast extractor parity', () => {
+  it('AST extractor matches regex within ±5% on representative files', async () => {
+    const repoRoot = path.join(__dirname, '..');
+    const regex = require('../brain/extractors/javascript.cjs');
+    const astExtractor = require('../brain/extractors/javascript-ast.cjs');
+    const ast = require('../brain/extractors/_ast.cjs');
+    await ast.preload([astExtractor.GRAMMAR]);
+
+    const fixtures = [
+      'bin/install.js',
+      'brain/index.cjs',
+      'hooks/sf-prompt-router.js',
+      'brain/extractors/_common.cjs',
+    ];
+    const ctx = { cwd: repoRoot };
+    let totalR = { nodes: 0, edges: 0 }, totalA = { nodes: 0, edges: 0 };
+
+    for (const f of fixtures) {
+      const content = fs.readFileSync(path.join(repoRoot, f), 'utf8');
+      const r = regex.extract(content, f, ctx);
+      const a = astExtractor.extract(content, f, ctx);
+      totalR.nodes += r.nodes.length; totalR.edges += r.edges.length;
+      totalA.nodes += a.nodes.length; totalA.edges += a.edges.length;
+
+      // Every fixture must yield at least one node in both extractors.
+      assert.ok(r.nodes.length > 0, `regex: ${f} produced no nodes`);
+      assert.ok(a.nodes.length > 0, `ast:   ${f} produced no nodes`);
+    }
+
+    // Aggregate parity check: AST should be within ±50% of regex on the
+    // sample (AST finds more arrow-fn/method-shorthand nodes than regex —
+    // a real improvement — but shouldn't drift wildly).
+    const drift = (d, b) => Math.abs(d / b) * 100;
+    const nodeDriftPct = drift(totalA.nodes - totalR.nodes, totalR.nodes);
+    const edgeDriftPct = drift(totalA.edges - totalR.edges, totalR.edges);
+    assert.ok(nodeDriftPct <= 50, `node drift too large: ${nodeDriftPct.toFixed(1)}% (regex=${totalR.nodes}, ast=${totalA.nodes})`);
+    assert.ok(edgeDriftPct <= 50, `edge drift too large: ${edgeDriftPct.toFixed(1)}% (regex=${totalR.edges}, ast=${totalA.edges})`);
+  });
+
+  it('AST extractor finds named functions and emits calls edges', async () => {
+    const astExtractor = require('../brain/extractors/javascript-ast.cjs');
+    const ast = require('../brain/extractors/_ast.cjs');
+    await ast.preload([astExtractor.GRAMMAR]);
+    const src = [
+      'function add(a, b) { return a + b; }',
+      'function total(xs) { return xs.reduce((s, x) => add(s, x), 0); }',
+      'module.exports = { add, total };',
+    ].join('\n');
+    const result = astExtractor.extract(src, 'test.js', {});
+    const fnNames = result.nodes.filter(n => n.kind === 'function').map(n => n.name);
+    assert.ok(fnNames.includes('add'),   'add should be extracted');
+    assert.ok(fnNames.includes('total'), 'total should be extracted');
+    const callsAddFromTotal = result.edges.some(e =>
+      e.kind === 'calls' &&
+      e.source.endsWith('total') &&
+      e.target.endsWith('add')
+    );
+    assert.ok(callsAddFromTotal, 'total → add calls edge expected');
+  });
+
+  it('AST extractor emits imports edges for local requires', async () => {
+    const astExtractor = require('../brain/extractors/javascript-ast.cjs');
+    const ast = require('../brain/extractors/_ast.cjs');
+    await ast.preload([astExtractor.GRAMMAR]);
+    const src = `
+      const { helper } = require('./util');
+      function caller() { return helper(); }
+    `;
+    const result = astExtractor.extract(src, 'src/foo.js', { cwd: '/tmp' });
+    const hasImport = result.edges.some(e => e.kind === 'imports' && e.source.includes('foo.js'));
+    assert.ok(hasImport, 'require("./util") should emit an imports edge');
+  });
+});

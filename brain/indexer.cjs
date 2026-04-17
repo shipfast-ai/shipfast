@@ -246,10 +246,24 @@ class BatchCollector {
 // ============================================================
 
 function indexCodebase(cwd, opts = {}) {
-  const { verbose = false, maxFiles = 2000, changedOnly = false } = opts;
+  const { verbose = false, maxFiles = 2000, changedOnly = false, useAst = false } = opts;
 
   if (!brain.brainExists(cwd)) {
     brain.initBrain(cwd);
+  }
+
+  // AST mode: the caller is responsible for pre-awaiting `ast.preload([...])`
+  // before calling indexCodebase (see the CLI entry below). Here we just pick
+  // the AST extractor for JS-family extensions.
+  let astJs = null;
+  if (useAst) {
+    try {
+      astJs = require('./extractors/javascript-ast.cjs');
+      if (verbose) console.log('AST mode enabled for JavaScript/TypeScript');
+    } catch (err) {
+      if (verbose) console.log('AST mode load failed (' + err.message + ') — falling back to regex');
+      astJs = null;
+    }
   }
 
   const startTime = Date.now();
@@ -302,9 +316,12 @@ function indexCodebase(cwd, opts = {}) {
         file_path: relPath, hash: fileHash
       });
 
-      // Dispatch to language extractor via registry
+      // Dispatch to language extractor via registry.
+      // In --ast mode, JS/TS/JSX/TSX/MJS/CJS files use the AST extractor;
+      // everything else continues to use the regex registry.
       const ext = path.extname(file);
-      const extractor = registry.getExtractor(ext);
+      let extractor = registry.getExtractor(ext);
+      if (astJs && astJs.extensions.includes(ext)) extractor = astJs;
       const ctx = { cwd, aliases: getConfigFor(extractor) };
       const result = extractor ? extractor.extract(content, relPath, ctx) : { nodes: [], edges: [] };
 
@@ -382,10 +399,11 @@ function indexCodebase(cwd, opts = {}) {
 }
 
 // CLI mode
-if (require.main === module) {
+if (require.main === module) (async () => {
   const args = process.argv.slice(2);
   const changedOnly = args.includes('--changed-only');
   const fresh = args.includes('--fresh');
+  const useAst = args.includes('--ast');
   const cwd = args.find(a => !a.startsWith('-')) || process.cwd();
 
   // --fresh flag: delete existing brain.db for full reindex
@@ -397,13 +415,25 @@ if (require.main === module) {
     }
   }
 
+  // --ast flag: preload tree-sitter grammar(s) before the sync index loop.
+  // Failure here is non-fatal — indexCodebase will fall back to regex.
+  if (useAst) {
+    try {
+      const astHelper = require('./extractors/_ast.cjs');
+      const astJs = require('./extractors/javascript-ast.cjs');
+      await astHelper.preload([astJs.GRAMMAR]);
+    } catch (err) {
+      console.log('AST preload failed (' + err.message + ') — continuing with regex');
+    }
+  }
+
   console.log(`Indexing ${cwd}...`);
-  const result = indexCodebase(cwd, { verbose: true, changedOnly });
+  const result = indexCodebase(cwd, { verbose: true, changedOnly, useAst });
   const parts = [`Done in ${result.elapsed_ms}ms: ${result.indexed} files indexed`];
   if (result.skipped) parts.push(`${result.skipped} unchanged`);
   if (result.cleaned) parts.push(`${result.cleaned} deleted files cleaned`);
   parts.push(`${result.nodes} symbols, ${result.edges} edges`);
   console.log(parts.join(', '));
-}
+})();
 
 module.exports = { indexCodebase, discoverFiles, discoverChangedFiles, BatchCollector };

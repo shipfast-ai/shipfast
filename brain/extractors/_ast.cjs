@@ -1,14 +1,15 @@
 /**
  * Shared tree-sitter AST helper.
  *
- * Thin wrapper over web-tree-sitter:
- *   init()                    — async, idempotent. Loads the runtime WASM.
- *   loadLanguage(name)        — async, cached. Loads a grammar .wasm by name.
- *                               'name' maps to brain/extractors/grammars/tree-sitter-<name>.wasm
- *   parse(lang, source)       — sync (after init/loadLanguage). Returns a tree.
- *   query(lang, queryString)  — sync, cached. Returns a Query ready to `.matches()`.
+ * Contract splits into async setup and sync per-file work:
+ *   await preload(['javascript', ...])  — run once at indexer startup
+ *   parseSync(name, source)              — sync after preload; returns tree
+ *   querySync(name, queryString)         — sync after preload; returns Query
  *
- * Keep the surface small; extractors stay language-specific.
+ * Keeping parse/query sync means extract() stays sync and the indexer's
+ * file loop doesn't need async rewiring. web-tree-sitter's Parser.parse()
+ * IS synchronous once the runtime + grammar are loaded — only the
+ * init/load steps are async.
  */
 
 'use strict';
@@ -17,7 +18,7 @@ const path = require('path');
 const fs = require('fs');
 
 let TS = null;
-let inited = false;
+let runtimeInited = false;
 const grammarCache = new Map();   // name → Language
 const parserCache  = new Map();   // name → Parser (pre-configured)
 const queryCache   = new Map();   // `${lang}::${src}` → Query
@@ -25,45 +26,71 @@ const queryCache   = new Map();   // `${lang}::${src}` → Query
 const GRAMMARS_DIR = path.join(__dirname, 'grammars');
 
 async function init() {
-  if (inited) return;
+  if (runtimeInited) return;
   TS = require('web-tree-sitter');
   await TS.Parser.init();
-  inited = true;
+  runtimeInited = true;
 }
 
 async function loadLanguage(name) {
   if (grammarCache.has(name)) return grammarCache.get(name);
-  if (!inited) await init();
+  if (!runtimeInited) await init();
   const wasmPath = path.join(GRAMMARS_DIR, `tree-sitter-${name}.wasm`);
   if (!fs.existsSync(wasmPath)) {
     throw new Error(`tree-sitter grammar not found: ${wasmPath}`);
   }
   const lang = await TS.Language.load(wasmPath);
   grammarCache.set(name, lang);
-  return lang;
-}
-
-async function getParser(name) {
-  if (parserCache.has(name)) return parserCache.get(name);
-  const lang = await loadLanguage(name);
   const parser = new TS.Parser();
   parser.setLanguage(lang);
   parserCache.set(name, parser);
-  return parser;
+  return lang;
 }
 
-async function parse(name, source) {
-  const parser = await getParser(name);
+/**
+ * Preload a set of grammars for later sync access. Call once at startup.
+ */
+async function preload(names) {
+  await init();
+  for (const n of names) await loadLanguage(n);
+}
+
+/**
+ * Sync parse. Throws if `name` wasn't preloaded. Extractors should only
+ * call this from their (sync) extract() after the indexer has preloaded.
+ */
+function parseSync(name, source) {
+  const parser = parserCache.get(name);
+  if (!parser) throw new Error(`tree-sitter grammar '${name}' not preloaded — call preload([...]) first`);
   return parser.parse(source);
 }
 
-async function query(name, queryString) {
+/**
+ * Sync Query lookup/build. Results cached for the process lifetime.
+ */
+function querySync(name, queryString) {
   const key = `${name}::${queryString}`;
   if (queryCache.has(key)) return queryCache.get(key);
-  const lang = await loadLanguage(name);
+  const lang = grammarCache.get(name);
+  if (!lang) throw new Error(`tree-sitter grammar '${name}' not preloaded — call preload([...]) first`);
   const q = new TS.Query(lang, queryString);
   queryCache.set(key, q);
   return q;
 }
 
-module.exports = { init, loadLanguage, parse, query };
+/**
+ * Probe availability of a grammar on disk without loading it (used by the
+ * indexer to decide whether --ast can handle a given extension).
+ */
+function grammarAvailable(name) {
+  return fs.existsSync(path.join(GRAMMARS_DIR, `tree-sitter-${name}.wasm`));
+}
+
+module.exports = {
+  init,
+  loadLanguage,
+  preload,
+  parseSync,
+  querySync,
+  grammarAvailable,
+};
