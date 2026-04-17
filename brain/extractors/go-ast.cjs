@@ -41,8 +41,12 @@ function extract(content, filePath) {
   // packageAliases[alias] = 'import/path'. Used to resolve alias.Func() calls.
   const packageAliases = {};
   const sameFileFns = new Map();
-  const pendingCalls = [];   // [{callerId, calleeName}]           — bare name
-  const pendingScoped = [];  // [{callerId, pkg, member}]          — alias.Func
+  const sameFileTypes = new Set();
+  const typeMethods = new Map();    // `TypeName.Method` → method node id
+  const localTypes = new Map();      // var → TypeName (from `x := Foo{}` or `x := &Foo{}`)
+  const pendingCalls = [];           // [{callerId, calleeName}]           — bare name
+  const pendingScoped = [];          // [{callerId, pkg, member}]          — alias.Func
+  const pendingReceiverCalls = [];   // [{callerId, receiverVar, member}]  — x.Method
 
   function visit(n, currentFn) {
     const t = n.type;
@@ -51,12 +55,33 @@ function extract(content, filePath) {
       handleImportSpec(n);
     } else if (t === 'function_declaration' || t === 'method_declaration') {
       const fnNode = handleFunction(n);
+      // Go method receivers: `func (r Foo) Name()` — track under Foo.Name.
+      if (fnNode && t === 'method_declaration') {
+        const recv = n.childForFieldName && n.childForFieldName('receiver');
+        if (recv) {
+          // receiver is `parameter_list` → parameter_declaration → type identifier
+          for (let i = 0; i < recv.childCount; i++) {
+            const p = recv.child(i);
+            if (p.type === 'parameter_declaration') {
+              const typeN = p.childForFieldName && p.childForFieldName('type');
+              const recvType = typeN && typeN.type === 'pointer_type'
+                ? (findChild(typeN, 'type_identifier') || {}).text
+                : typeN && typeN.type === 'type_identifier' ? typeN.text : null;
+              if (recvType) typeMethods.set(`${recvType}.${fnNode.name}`, fnNode.id);
+            }
+          }
+        }
+      }
       for (let i = 0; i < n.childCount; i++) visit(n.child(i), fnNode ? fnNode.id : currentFn);
       return;
     } else if (t === 'type_declaration') {
       handleTypeDecl(n);
     } else if (t === 'call_expression') {
       handleCall(n, currentFn);
+    } else if (t === 'short_var_declaration' || t === 'var_spec') {
+      handleVarDecl(n);
+    } else if (t === 'assignment_statement') {
+      handleAssign(n, currentFn);
     }
 
     for (let i = 0; i < n.childCount; i++) visit(n.child(i), currentFn);
@@ -112,6 +137,7 @@ function extract(content, filePath) {
         signature: `${label} ${name}`,
         hash: hashContent(lines.slice(start - 1, end).join('\n')),
       });
+      sameFileTypes.add(name);
     }
   }
 
@@ -122,17 +148,109 @@ function extract(content, filePath) {
     if (fn.type === 'identifier') {
       pendingCalls.push({ callerId: currentFn, calleeName: fn.text });
     } else if (fn.type === 'selector_expression') {
-      // `pkg.Func` or `x.Method`. Resolve pkg → import path if it matches an alias.
+      // `pkg.Func` (alias) or `x.Method` (method on tracked local).
       const operand = fn.childForFieldName && fn.childForFieldName('operand');
       const field = fn.childForFieldName && fn.childForFieldName('field');
       if (operand && operand.type === 'identifier' && field) {
+        // Try package alias first, then local var type.
         pendingScoped.push({
           callerId: currentFn,
           pkg: operand.text,
           member: field.text,
         });
+        pendingReceiverCalls.push({
+          callerId: currentFn,
+          receiverVar: operand.text,
+          member: field.text,
+        });
       }
     }
+  }
+
+  function handleVarDecl(n) {
+    // `x := Foo{...}` or `x := &Foo{...}` or `var x Foo`
+    // short_var_declaration children: [identifier_list] := [expression_list]
+    // var_spec children: [identifier] [type] = [value]
+    if (n.type === 'short_var_declaration') {
+      const left = n.childForFieldName && n.childForFieldName('left');
+      const right = n.childForFieldName && n.childForFieldName('right');
+      if (!left || !right) return;
+      // Single var, single value case (most common)
+      const leftIdents = findAll(left, 'identifier');
+      const rightExprs = right.childCount ? [right.child(0)] : [];
+      if (leftIdents.length !== 1 || rightExprs.length !== 1) return;
+      const varName = leftIdents[0].text;
+      const expr = rightExprs[0];
+      const typeName = extractCtorType(expr);
+      if (typeName) localTypes.set(varName, typeName);
+    } else if (n.type === 'var_spec') {
+      // var x Foo or var x Foo = expr
+      const typeN = n.childForFieldName && n.childForFieldName('type');
+      const nameN = n.childForFieldName && n.childForFieldName('name');
+      if (nameN && typeN) {
+        const typeName = typeN.type === 'type_identifier' ? typeN.text
+                       : typeN.type === 'pointer_type' ? (findChild(typeN, 'type_identifier') || {}).text
+                       : null;
+        if (typeName) localTypes.set(nameN.text, typeName);
+      }
+    }
+  }
+
+  function extractCtorType(expr) {
+    // `Foo{...}` → Foo  |  `&Foo{...}` → Foo  |  `new(Foo)` → Foo
+    if (!expr) return null;
+    if (expr.type === 'composite_literal') {
+      const t = expr.childForFieldName && expr.childForFieldName('type');
+      if (t && t.type === 'type_identifier') return t.text;
+    } else if (expr.type === 'unary_expression') {
+      // `&Foo{…}` → child is composite_literal
+      for (let i = 0; i < expr.childCount; i++) {
+        const c = expr.child(i);
+        if (c.type === 'composite_literal') {
+          const t = c.childForFieldName && c.childForFieldName('type');
+          if (t && t.type === 'type_identifier') return t.text;
+        }
+      }
+    } else if (expr.type === 'call_expression') {
+      // `new(Foo)` or `Foo(...)`  — only treat `new(Foo)` as creating Foo
+      const fn = expr.childForFieldName && expr.childForFieldName('function');
+      if (fn && fn.type === 'identifier' && fn.text === 'new') {
+        const args = expr.childForFieldName && expr.childForFieldName('arguments');
+        const arg = args && args.childCount ? args.child(1) : null;
+        if (arg && arg.type === 'type_identifier') return arg.text;
+      }
+    }
+    return null;
+  }
+
+  function handleAssign(n, currentFn) {
+    if (!currentFn) return;
+    const left = n.childForFieldName && n.childForFieldName('left');
+    if (!left) return;
+    // Left is an expression_list; iterate and catch selector_expression LHS.
+    for (let i = 0; i < left.childCount; i++) {
+      const sel = left.child(i);
+      if (sel.type !== 'selector_expression') continue;
+      const operand = sel.childForFieldName && sel.childForFieldName('operand');
+      const field = sel.childForFieldName && sel.childForFieldName('field');
+      if (!operand || !field) continue;
+      if (operand.type === 'identifier') {
+        emit(currentFn, `variable:${filePath}:${operand.text}.${field.text}`, 'mutates');
+      }
+    }
+  }
+
+  function findAll(n, type, out = []) {
+    for (let i = 0; i < n.childCount; i++) {
+      const c = n.child(i);
+      if (c.type === type) out.push(c);
+    }
+    return out;
+  }
+
+  function findChild(n, type) {
+    for (let i = 0; i < n.childCount; i++) if (n.child(i).type === type) return n.child(i);
+    return null;
   }
 
   visit(root, null);
@@ -148,12 +266,23 @@ function extract(content, filePath) {
     emit(callerId, `unresolved:${calleeName}`, 'calls');
   }
   for (const { callerId, pkg, member } of pendingScoped) {
-    const key = `${callerId}::${pkg}.${member}`;
+    const key = `${callerId}::pkg::${pkg}.${member}`;
     if (seen.has(key)) continue;
     seen.add(key);
     const importPath = packageAliases[pkg];
-    if (!importPath) continue;   // local struct method — can't resolve without type info
+    if (!importPath) continue;
     emit(callerId, `fn:${importPath}:${member}`, 'calls');
+  }
+
+  // Receiver method dispatch: x.Method() where x := Foo{} (same-file struct).
+  for (const { callerId, receiverVar, member } of pendingReceiverCalls) {
+    const key = `${callerId}::recv::${receiverVar}.${member}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const type = localTypes.get(receiverVar);
+    if (!type || !sameFileTypes.has(type)) continue;
+    const methodId = typeMethods.get(`${type}.${member}`);
+    if (methodId && methodId !== callerId) emit(callerId, methodId, 'calls');
   }
 
   return { nodes, edges };
