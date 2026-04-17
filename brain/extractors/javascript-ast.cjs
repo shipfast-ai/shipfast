@@ -53,10 +53,6 @@ function lineCol(node) {
   return { start: node.startPosition.row + 1, end: node.endPosition.row + 1 };
 }
 
-function safe(str) {
-  return typeof str === 'string' ? str : '';
-}
-
 function extract(content, filePath, ctx) {
   const nodes = [];
   const { edges, emit } = makeEdgeEmitter();
