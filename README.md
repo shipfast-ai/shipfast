@@ -263,6 +263,10 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 **MCP Server**: 26 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
 
+**MCP auto-registration** (v1.8.0): shipfast writes the MCP server into each AI tool's native config file — Claude Code (`settings.json`), OpenCode (`settings.json`), Kilo (`kilo.jsonc`), Cursor (`mcp.json`), Codex (`config.toml`), Copilot (`mcp-config.json`), Windsurf (`mcp_config.json`), Gemini CLI (`settings.json`), Qwen Code (`settings.json`), Cline (`data/settings/cline_mcp_settings.json`) — so `brain_*` tools are immediately available on every supported platform.
+
+**Claude Code hooks** (v1.8.0): `FileChanged` auto-triggers `shipfast refresh` when you edit `package.json` / `Cargo.toml` / `go.mod` / `pyproject.toml` / `.nvmrc` / `tsconfig.json` etc. `PreCompact` auto-saves a brain checkpoint before Claude Code compacts the session. Both leverage Claude Code 2.1.83+ / 2.1.105+ hook types.
+
 **Project Signals** (v1.7.0): manifest files (`package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `composer.json`, `pubspec.yaml`, `*.csproj`, `mix.exs`) + config files (`tsconfig.json`, `.nvmrc`, `.env.example`, `pnpm-workspace.yaml`, etc.) are scanned on `shipfast init` and refreshed with `shipfast refresh`. Framework, runtime, package manager, test framework, ORM are auto-detected and injected into every agent's context as `<project_stack>` — so agents know your real stack without re-reading files each task.
 
 ---

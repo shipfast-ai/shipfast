@@ -157,7 +157,7 @@ function installFor(key, runtime) {
   // Copy hooks
   const hooksDir = path.join(dir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
-  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js'])
+  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js','sf-signal-refresh.js','sf-precompact.js'])
     copy('hooks/' + f, path.join(hooksDir, f));
 
   // Copy MCP server
@@ -165,17 +165,27 @@ function installFor(key, runtime) {
   fs.mkdirSync(mcpDir, { recursive: true });
   copy('mcp/server.cjs', path.join(mcpDir, 'server.cjs'));
 
-  // Runtime-specific config
-  const claudeCompat = ['Claude Code', 'OpenCode', 'Kilo'];
-  const geminiCompat = ['Gemini CLI', 'Antigravity'];
+  // Runtime-specific config.
+  // Claude Code + OpenCode share a compatible settings.json/hooks surface.
+  // Kilo diverged in Jan 2026 to a JSONC config at ~/.config/kilo/kilo.jsonc.
+  const claudeCompat = ['Claude Code', 'OpenCode'];
+  const geminiCompat = ['Antigravity'];  // still instruction-only; no MCP surface
 
   if (claudeCompat.includes(runtime.name)) {
     writeSettings(dir, hooksDir);
     writeMcpConfig(dir);
     writeInstruction(path.join(dir, 'CLAUDE.md'));
+  } else if (runtime.name === 'Kilo') {
+    // Kilo uses JSONC + its own mcpServers schema; no Claude-compat hooks.
+    writeKiloMcpConfig(dir);
+    writeInstruction(path.join(dir, 'CLAUDE.md'));
+  } else if (runtime.name === 'Gemini CLI') {
+    writeGeminiMcpConfig(dir);
+    writeInstruction(path.join(dir, 'AGENTS.md'));
   } else if (geminiCompat.includes(runtime.name)) {
     writeInstruction(path.join(dir, 'AGENTS.md'));
   } else if (runtime.name === 'Copilot') {
+    writeCopilotMcpConfig(dir);
     writeInstruction(path.join(dir, 'copilot-instructions.md'));
   } else if (runtime.name === 'Cursor') {
     writeCursorMcpConfig(dir);
@@ -185,6 +195,12 @@ function installFor(key, runtime) {
     writeInstruction(path.join(dir, 'AGENTS.md'));
   } else if (runtime.name === 'Windsurf') {
     writeWindsurfMcpConfig(dir);
+    writeInstruction(path.join(dir, 'AGENTS.md'));
+  } else if (runtime.name === 'Qwen Code') {
+    writeQwenMcpConfig(dir);
+    writeQwenInstruction(dir);
+  } else if (runtime.name === 'Cline') {
+    writeClineMcpConfig(dir);
     writeInstruction(path.join(dir, 'AGENTS.md'));
   } else {
     writeInstruction(path.join(dir, 'AGENTS.md'));
@@ -695,10 +711,13 @@ function cmdUninstall() {
       cleanSettings(dir);
       // Remove shipfast-brain from mcpServers in settings.json (claude-compat)
       cleanMcpJson(path.join(dir, 'settings.json'));
-      // Clean the dedicated MCP config files for Cursor / Windsurf / Codex
-      cleanMcpJson(path.join(dir, 'mcp.json'));
-      cleanMcpJson(path.join(dir, 'mcp_config.json'));
-      cleanCodexToml(path.join(dir, 'config.toml'));
+      // Clean the dedicated MCP config files across every supported platform.
+      cleanMcpJson(path.join(dir, 'mcp.json'));               // Cursor
+      cleanMcpJson(path.join(dir, 'mcp_config.json'));        // Windsurf
+      cleanMcpJson(path.join(dir, 'mcp-config.json'));        // Copilot
+      cleanMcpJson(path.join(dir, 'data', 'settings', 'cline_mcp_settings.json')); // Cline
+      cleanCodexToml(path.join(dir, 'config.toml'));          // Codex
+      cleanKiloJsonc(path.join(dir, 'kilo.jsonc'));           // Kilo
       // Clean instruction files (CLAUDE.md, AGENTS.md, etc.)
       cleanInstructionFile(path.join(dir, 'CLAUDE.md'));
       cleanInstructionFile(path.join(dir, 'AGENTS.md'));
@@ -731,7 +750,7 @@ function cleanSettings(dir) {
     const s = JSON.parse(fs.readFileSync(sp, 'utf8'));
     if (!s.hooks) return;
     let changed = false;
-    for (const evt of ['PostToolUse', 'Notification', 'PreToolUse']) {
+    for (const evt of ['PostToolUse', 'Notification', 'PreToolUse', 'FileChanged', 'PreCompact']) {
       if (!s.hooks[evt]) continue;
       const before = s.hooks[evt].length;
       s.hooks[evt] = s.hooks[evt].filter(e => {
@@ -796,7 +815,16 @@ function writeSettings(dir, hooksDir) {
   }
   function mk(cmd) { return { matcher: '', hooks: [{ type: 'command', command: cmd }] }; }
 
-  for (const [evt, file] of [['PostToolUse','sf-context-monitor.js'],['Notification','sf-statusline.js'],['PreToolUse','sf-first-run.js'],['PreToolUse','sf-prompt-guard.js']]) {
+  for (const [evt, file] of [
+    ['PostToolUse',  'sf-context-monitor.js'],
+    ['Notification', 'sf-statusline.js'],
+    ['PreToolUse',   'sf-first-run.js'],
+    ['PreToolUse',   'sf-prompt-guard.js'],
+    // Claude Code v2.1.83+ — auto-refresh signals when manifests change
+    ['FileChanged',  'sf-signal-refresh.js'],
+    // Claude Code v2.1.105+ — auto-checkpoint before session compaction
+    ['PreCompact',   'sf-precompact.js'],
+  ]) {
     s.hooks[evt] = s.hooks[evt] || [];
     if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));
   }
@@ -807,10 +835,29 @@ function writeSettings(dir, hooksDir) {
 
   const shipfastPermissions = [
     'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Agent',
-    'Bash(git *)', 'Bash(npm run build*)', 'Bash(npm test*)',
-    'Bash(npx tsc*)', 'Bash(npx vitest*)', 'Bash(cargo check*)',
-    'Bash(grep *)', 'Bash(find *)', 'Bash(wc *)', 'Bash(cat *)',
-    'Bash(ls *)', 'Bash(mkdir *)', 'Bash(node *)'
+    // Version control
+    'Bash(git *)',
+    // Package managers (covers every mainstream JS/TS workflow)
+    'Bash(npm *)', 'Bash(pnpm *)', 'Bash(yarn *)', 'Bash(bun *)', 'Bash(npx *)',
+    // Test runners across languages
+    'Bash(vitest *)', 'Bash(jest *)', 'Bash(mocha *)',
+    'Bash(pytest *)', 'Bash(rspec *)', 'Bash(phpunit *)',
+    'Bash(cargo test*)', 'Bash(cargo check*)', 'Bash(cargo clippy*)',
+    'Bash(go test*)', 'Bash(go vet*)', 'Bash(go build*)',
+    'Bash(mix test*)', 'Bash(swift test*)',
+    // TypeScript / build tools
+    'Bash(tsc *)', 'Bash(tsx *)', 'Bash(ts-node *)',
+    // Read-only shell utilities
+    'Bash(grep *)', 'Bash(rg *)', 'Bash(find *)', 'Bash(wc *)',
+    'Bash(cat *)', 'Bash(head *)', 'Bash(tail *)', 'Bash(ls *)',
+    'Bash(which *)', 'Bash(file *)',
+    // File system (non-destructive mutations)
+    'Bash(mkdir *)', 'Bash(touch *)', 'Bash(cp *)', 'Bash(mv *)',
+    // Runtimes
+    'Bash(node *)', 'Bash(python *)', 'Bash(python3 *)', 'Bash(ruby *)',
+    'Bash(go run*)', 'Bash(cargo run*)',
+    // Read-only database
+    'Bash(sqlite3 -readonly *)',
   ];
 
   for (const perm of shipfastPermissions) {
@@ -870,6 +917,124 @@ function writeCursorMcpConfig(dir) {
   }
 }
 
+// Copilot CLI (Feb 2026 GA) — MCP config at ~/.copilot/mcp-config.json.
+function writeCopilotMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const mcpPath = path.join(dir, 'mcp-config.json');
+  let s = {};
+  if (fs.existsSync(mcpPath)) { try { s = JSON.parse(fs.readFileSync(mcpPath, 'utf8')); } catch {} }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(mcpPath, JSON.stringify(s, null, 2));
+}
+
+// Gemini CLI (v0.39+) — MCP in settings.json.mcpServers (same shape as Claude-compat).
+function writeGeminiMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const settingsPath = path.join(dir, 'settings.json');
+  let s = {};
+  if (fs.existsSync(settingsPath)) { try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {} }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2));
+}
+
+// Qwen Code (v0.14.5+) — MCP in settings.json.mcpServers.
+function writeQwenMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const settingsPath = path.join(dir, 'settings.json');
+  let s = {};
+  if (fs.existsSync(settingsPath)) { try { s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch {} }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2));
+}
+
+// Cline — actual MCP config path is ~/.cline/data/settings/cline_mcp_settings.json,
+// not ~/.cline/settings.json. Create the nested dir if needed.
+function writeClineMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const nested = path.join(dir, 'data', 'settings');
+  fs.mkdirSync(nested, { recursive: true });
+  const mcpPath = path.join(nested, 'cline_mcp_settings.json');
+  let s = {};
+  if (fs.existsSync(mcpPath)) { try { s = JSON.parse(fs.readFileSync(mcpPath, 'utf8')); } catch {} }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(mcpPath, JSON.stringify(s, null, 2));
+}
+
+// Kilo (Jan 2026 divergence) — JSONC config at ~/.config/kilo/kilo.jsonc.
+// Preserves user comments + trailing commas by parsing with a tolerant stripper,
+// mutating the parsed object, and writing back as pretty JSON. Comments in the
+// file are lost on write; that matches typical JSONC ecosystem behavior (VSCode
+// settings.json etc.) and is a worthwhile tradeoff for reliable mcpServers edits.
+function writeKiloMcpConfig(dir) {
+  const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
+  const cfgPath = path.join(dir, 'kilo.jsonc');
+  let s = {};
+  if (fs.existsSync(cfgPath)) {
+    const raw = fs.readFileSync(cfgPath, 'utf8');
+    try { s = JSON.parse(raw); }
+    catch {
+      try { s = JSON.parse(stripJsoncComments(raw)); } catch { s = {}; }
+    }
+  }
+  if (!s.mcpServers) s.mcpServers = {};
+  s.mcpServers['shipfast-brain'] = {
+    command: 'node',
+    args: [serverPath],
+    env: {}
+  };
+  fs.writeFileSync(cfgPath, JSON.stringify(s, null, 2) + '\n');
+}
+
+// Strip // and /* */ comments + trailing commas for JSONC parse fallback.
+// Respects string literals.
+function stripJsoncComments(src) {
+  let out = '';
+  let i = 0;
+  const n = src.length;
+  let inStr = false, quote = '', esc = false;
+  while (i < n) {
+    const c = src[i];
+    if (inStr) {
+      out += c;
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === quote) inStr = false;
+      i++;
+    } else if (c === '"' || c === "'") {
+      inStr = true; quote = c; out += c; i++;
+    } else if (c === '/' && src[i + 1] === '/') {
+      while (i < n && src[i] !== '\n') i++;
+    } else if (c === '/' && src[i + 1] === '*') {
+      i += 2;
+      while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i += 2;
+    } else {
+      out += c; i++;
+    }
+  }
+  return out.replace(/,(\s*[}\]])/g, '$1');
+}
+
 // Windsurf: MCP config lives at ~/.codeium/windsurf/mcp_config.json with {"mcpServers": {...}}.
 function writeWindsurfMcpConfig(dir) {
   const serverPath = path.join(dir, 'shipfast', 'mcp', 'server.cjs');
@@ -899,6 +1064,9 @@ function writeCodexMcpConfig(dir) {
     '[mcp_servers.shipfast-brain]',
     'command = "node"',
     'args = ' + JSON.stringify([serverPath]),
+    // Codex v0.121+ — parallel tool calls can race on the brain's SQL
+    // transactions. Explicit false is safer than implicit default.
+    'supports_parallel_tool_calls = false',
     ''
   ].join('\n');
   const prefix = existing.trimEnd();
@@ -921,6 +1089,20 @@ function removeCodexShipfastSection(src) {
     if (!skipping) out.push(line);
   }
   return out.join('\n');
+}
+
+// Qwen Code needs the normal instruction block PLUS a note about the OAuth
+// deprecation that landed 2026-04-15 (free tier ended, users must BYOK).
+function writeQwenInstruction(dir) {
+  const filePath = path.join(dir, 'AGENTS.md');
+  writeInstruction(filePath);
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const note = '\n> Note: Qwen free OAuth tier ended 2026-04-15. Configure an API key via Alibaba Cloud, OpenRouter, or Fireworks (BYOK) — see https://github.com/QwenLM/qwen-code for setup.\n';
+    if (!content.includes('Qwen free OAuth tier ended')) {
+      fs.writeFileSync(filePath, content.trimEnd() + note);
+    }
+  } catch {}
 }
 
 function writeInstruction(filePath) {
@@ -949,6 +1131,23 @@ function cleanMcpJson(filePath) {
     delete s.mcpServers['shipfast-brain'];
     if (Object.keys(s.mcpServers).length === 0) delete s.mcpServers;
     fs.writeFileSync(filePath, JSON.stringify(s, null, 2));
+  } catch {}
+}
+
+// Remove shipfast-brain from Kilo's kilo.jsonc. Preserves everything else.
+// If the file becomes empty-object, it's deleted.
+function cleanKiloJsonc(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    let s;
+    try { s = JSON.parse(raw); }
+    catch { s = JSON.parse(stripJsoncComments(raw)); }
+    if (!s || !s.mcpServers || !s.mcpServers['shipfast-brain']) return;
+    delete s.mcpServers['shipfast-brain'];
+    if (Object.keys(s.mcpServers).length === 0) delete s.mcpServers;
+    if (Object.keys(s).length === 0) { fs.unlinkSync(filePath); return; }
+    fs.writeFileSync(filePath, JSON.stringify(s, null, 2) + '\n');
   } catch {}
 }
 
@@ -1032,9 +1231,15 @@ module.exports = {
   writeCursorMcpConfig,
   writeWindsurfMcpConfig,
   writeCodexMcpConfig,
+  writeCopilotMcpConfig,
+  writeGeminiMcpConfig,
+  writeQwenMcpConfig,
+  writeClineMcpConfig,
+  writeKiloMcpConfig,
   removeCodexShipfastSection,
   cleanMcpJson,
   cleanCodexToml,
+  cleanKiloJsonc,
 };
 
 if (require.main === module) main();

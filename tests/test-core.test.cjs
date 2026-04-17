@@ -700,6 +700,104 @@ describe('writeCursorMcpConfig', () => {
   });
 });
 
+describe('writeCopilotMcpConfig', () => {
+  it('writes ~/.copilot/mcp-config.json with shipfast-brain', () => {
+    const dir = mkInstallTmp('sf-copilot-');
+    installer.writeCopilotMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+  });
+  it('preserves existing mcpServers entries', () => {
+    const dir = mkInstallTmp('sf-copilot-');
+    fs.writeFileSync(path.join(dir, 'mcp-config.json'),
+      JSON.stringify({ mcpServers: { github: { command: 'gh-mcp' } } }));
+    installer.writeCopilotMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'mcp-config.json'), 'utf8'));
+    assert.ok(cfg.mcpServers.github);
+    assert.ok(cfg.mcpServers['shipfast-brain']);
+  });
+});
+
+describe('writeGeminiMcpConfig', () => {
+  it('writes settings.json.mcpServers', () => {
+    const dir = mkInstallTmp('sf-gemini-');
+    installer.writeGeminiMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+  });
+});
+
+describe('writeQwenMcpConfig', () => {
+  it('writes settings.json.mcpServers', () => {
+    const dir = mkInstallTmp('sf-qwen-');
+    installer.writeQwenMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+  });
+});
+
+describe('writeClineMcpConfig', () => {
+  it('writes to nested data/settings/cline_mcp_settings.json', () => {
+    const dir = mkInstallTmp('sf-cline-');
+    installer.writeClineMcpConfig(dir);
+    const fp = path.join(dir, 'data', 'settings', 'cline_mcp_settings.json');
+    assert.ok(fs.existsSync(fp));
+    const cfg = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+  });
+  it('creates the nested directory if missing', () => {
+    const dir = mkInstallTmp('sf-cline-');
+    // No data/settings/ exists yet
+    installer.writeClineMcpConfig(dir);
+    assert.ok(fs.existsSync(path.join(dir, 'data', 'settings')));
+  });
+});
+
+describe('writeKiloMcpConfig', () => {
+  it('writes kilo.jsonc with shipfast-brain', () => {
+    const dir = mkInstallTmp('sf-kilo-');
+    installer.writeKiloMcpConfig(dir);
+    const raw = fs.readFileSync(path.join(dir, 'kilo.jsonc'), 'utf8');
+    const cfg = JSON.parse(raw);
+    assert.equal(cfg.mcpServers['shipfast-brain'].command, 'node');
+  });
+  it('preserves existing keys when kilo.jsonc has comments', () => {
+    const dir = mkInstallTmp('sf-kilo-');
+    fs.writeFileSync(path.join(dir, 'kilo.jsonc'),
+      '// user preference\n{\n  "apiProvider": "anthropic", // comment\n  "mcpServers": { "keeper": { "command": "x" } },\n}\n');
+    installer.writeKiloMcpConfig(dir);
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'kilo.jsonc'), 'utf8'));
+    assert.equal(cfg.apiProvider, 'anthropic');
+    assert.ok(cfg.mcpServers.keeper);
+    assert.ok(cfg.mcpServers['shipfast-brain']);
+  });
+});
+
+describe('cleanKiloJsonc', () => {
+  it('removes shipfast-brain but keeps other keys', () => {
+    const dir = mkInstallTmp('sf-kilo-clean-');
+    const fp = path.join(dir, 'kilo.jsonc');
+    fs.writeFileSync(fp, JSON.stringify({
+      apiProvider: 'anthropic',
+      mcpServers: { 'shipfast-brain': { command: 'node' }, keeper: { a: 1 } }
+    }, null, 2));
+    installer.cleanKiloJsonc(fp);
+    const after = JSON.parse(fs.readFileSync(fp, 'utf8'));
+    assert.equal(after.apiProvider, 'anthropic');
+    assert.ok(after.mcpServers.keeper);
+    assert.ok(!after.mcpServers['shipfast-brain']);
+  });
+});
+
+describe('writeCodexMcpConfig — parallel-tool-calls flag', () => {
+  it('emits supports_parallel_tool_calls = false', () => {
+    const dir = mkInstallTmp('sf-codex-parallel-');
+    installer.writeCodexMcpConfig(dir);
+    const out = fs.readFileSync(path.join(dir, 'config.toml'), 'utf8');
+    assert.ok(out.includes('supports_parallel_tool_calls = false'));
+  });
+});
+
 describe('writeWindsurfMcpConfig', () => {
   it('writes mcp_config.json under the Windsurf directory', () => {
     const dir = mkInstallTmp('sf-windsurf-');
