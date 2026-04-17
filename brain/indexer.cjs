@@ -37,23 +37,26 @@ const INDEXABLE = new Set([
   '.cs',                                                 // C#
   '.fs', '.fsx',                                         // F#
   '.vue', '.svelte', '.astro',                           // Frontend frameworks
+  '.md', '.mdx',                                          // Markdown (docs, skills, READMEs)
 ]);
 
-// Directories to skip (build output, deps, caches, generated, IDE)
-const SKIP_DIRS = new Set([
+// Directories to skip at ANY depth (build output, deps, caches, generated, IDE).
+// `vendor` is here because it's third-party code 99% of the time — Composer,
+// Go modules, and Laravel's public/vendor bundled JS all go through this path.
+// The rare legit exception (Laravel's resources/views/vendor view overrides)
+// is handled via PATH_EXCEPTIONS below.
+const SKIP_DIRS_ANYWHERE = new Set([
   // JavaScript / Node / Frontend
   'node_modules', '.next', '.nuxt', '.svelte-kit', '.output', '.vuepress',
   '.docusaurus', '.parcel-cache', '.cache', '.turbo', '.vite',
   'jspm_packages', 'web_modules', 'bower_components', '.pnpm-store',
-  // Build output (all languages)
-  'dist', 'build', 'out', '_build', '.build', 'Release',
   // Python
-  '__pycache__', '.venv', 'venv', 'env', '.eggs', 'eggs', 'sdist', 'wheels',
+  '__pycache__', '.venv', '.eggs', 'sdist', 'wheels',
   '.tox', '.nox', '.mypy_cache', '.pytest_cache', '.ruff_cache', '.hypothesis',
   'htmlcov', '.ipynb_checkpoints', 'site-packages', '.pixi',
   // Rust
   'target',
-  // Go
+  // Go / PHP Composer — dependencies at any depth
   'vendor',
   // Java / Kotlin / Scala / Android
   '.gradle', '.kotlin', '.mtj.tmp',
@@ -61,24 +64,47 @@ const SKIP_DIRS = new Set([
   'Pods', 'DerivedData', 'xcuserdata', 'Carthage',
   // Ruby
   '.bundle',
-  // PHP
-  // 'vendor' already listed under Go
   // Dart / Flutter
   '.dart_tool', '.pub-cache',
-  // Elixir
-  'deps', '_build', 'cover',
   // Git
   '.git',
   // IDE / Editor
   '.vscode', '.idea', '.fleet', '.vs',
   // Test / Coverage
-  'coverage', '.nyc_output', 'spec',
+  '.nyc_output',
   // ShipFast / GSD
   '.shipfast', '.planning', '.gsd',
   // Misc generated / temp
-  'tmp', 'temp', '.temp', '.serverless', '.firebase', '.dynamodb',
-  '.docker', 'log', 'logs',
+  '.temp', '.serverless', '.firebase', '.dynamodb', '.docker',
 ]);
+
+// Directories to skip ONLY at the repo root. These names are common as
+// legitimate nested subdirectories — e.g. src/types/spec/, a repo with a
+// tmp/ at root is output but app/tmp/ might be real code. Root-only keeps
+// the common case safe without blowing away nested code.
+const SKIP_DIRS_AT_ROOT = new Set([
+  // Build output (tree root only — monorepo deep build dirs handled by tool configs)
+  'dist', 'build', 'out', '_build', '.build', 'Release',
+  // Python
+  'venv', 'env', 'eggs',
+  // Elixir
+  'deps', '_build', 'cover',
+  // Coverage / test scaffolding
+  'coverage', 'spec',
+  // Misc temp / log
+  'tmp', 'temp', 'log', 'logs',
+]);
+
+// Explicit path prefixes (repo-relative) to keep indexed even if a segment
+// matches SKIP_DIRS_ANYWHERE. Narrow and deliberate — Laravel is the only
+// framework we currently carry an exception for.
+const PATH_EXCEPTIONS = [
+  /^resources[/\\]views[/\\]vendor(?:[/\\]|$)/, // Laravel: user-customized view overrides
+];
+
+// Back-compat alias so older callers that reference SKIP_DIRS still work. Prefer
+// the two sets above for any new logic.
+const SKIP_DIRS = new Set([...SKIP_DIRS_ANYWHERE, ...SKIP_DIRS_AT_ROOT]);
 
 // Files to skip by exact name (lock files, generated, env, data)
 const SKIP_FILES = new Set([
@@ -111,7 +137,18 @@ function discoverFiles(rootDir, maxFiles = 2000) {
     for (const entry of entries) {
       if (files.length >= maxFiles) break;
       if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith('.')) {
+        const entryRel = path.relative(rootDir, path.join(dir, entry.name)).replace(/\\/g, '/');
+        const isException = PATH_EXCEPTIONS.some(re => re.test(entryRel));
+        // Skip unless the repo-relative path is in PATH_EXCEPTIONS:
+        //   - always-skip names (node_modules, vendor, etc.) at any depth
+        //   - root-only names (dist, build, spec, etc.) at depth=0 only
+        //   - any hidden directory (name starts with `.`)
+        const skip = !isException && (
+          SKIP_DIRS_ANYWHERE.has(entry.name)
+          || (depth === 0 && SKIP_DIRS_AT_ROOT.has(entry.name))
+          || entry.name.startsWith('.')
+        );
+        if (!skip) {
           walk(path.join(dir, entry.name), depth + 1);
         }
       } else if (entry.isFile() && INDEXABLE.has(path.extname(entry.name)) && !SKIP_FILES.has(entry.name)) {

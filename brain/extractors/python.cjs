@@ -11,7 +11,20 @@
 
 const path = require('path');
 const fs = require('fs');
-const { hashContent, findIndentBlock, makeEdgeEmitter } = require('./_common.cjs');
+const { hashContent, findIndentBlock, makeEdgeEmitter, emitCalls } = require('./_common.cjs');
+
+// Python non-callee keywords (keep simple — anything that can appear before
+// `(` but isn't a user-defined function).
+const PY_NON_CALL_KEYWORDS = new Set([
+  'if', 'elif', 'else', 'for', 'while', 'return', 'yield', 'lambda',
+  'try', 'except', 'finally', 'raise', 'with', 'as',
+  'def', 'class', 'import', 'from', 'global', 'nonlocal',
+  'and', 'or', 'not', 'in', 'is', 'async', 'await',
+  'True', 'False', 'None', 'pass', 'break', 'continue',
+  'print', 'super', 'self', 'isinstance', 'issubclass',
+  'int', 'str', 'float', 'list', 'dict', 'tuple', 'set', 'bool', 'bytes',
+  'len', 'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'reversed',
+]);
 
 const EXTENSIONS = ['.py', '.pyw'];
 
@@ -77,6 +90,7 @@ function extract(content, filePath, ctx) {
     });
   }
 
+  const importedSymbols = {};
   IMPORT_RE.lastIndex = 0;
   while ((m = IMPORT_RE.exec(content)) !== null) {
     const fromClause = m[2];
@@ -84,10 +98,20 @@ function extract(content, filePath, ctx) {
     if (fromClause && fromClause.startsWith('.')) {
       const resolved = resolveImport(filePath, fromClause, ctx);
       emit(`file:${filePath}`, `file:${resolved}`, 'imports');
-    } else if (!fromClause) {
-      // `import X` with no `from` — only tracked when relative (rare). Skip.
+      // `from .pkg import a, b as c` → importedSymbols { a: resolved, c: resolved }
+      for (const part of targets.split(',')) {
+        const [orig, , alias] = part.trim().split(/\s+/);
+        const name = alias || orig;
+        if (/^[A-Za-z_]\w*$/.test(name)) importedSymbols[name] = resolved;
+      }
     }
   }
+
+  // Same-file + cross-file calls.
+  emitCalls({
+    content, lines, fnNodes: nodes, importedSymbols, filePath, emit,
+    nonCallKeywords: PY_NON_CALL_KEYWORDS,
+  });
 
   return { nodes, edges };
 }

@@ -54,6 +54,23 @@ function extract(content, filePath) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
   }
 
+  // Kotlin inheritance: `class Foo(...) : Base(), Iface1, Iface2 { ... }`.
+  // The list after `:` contains one optional class (may have `()`) plus 0+
+  // interfaces. We emit `extends` for anything with `(...)` and `implements`
+  // for the rest — an imperfect-but-useful heuristic.
+  const IMPLEMENTS_RE = /\bclass\s+(\w+)(?:\s*<[^>]+>)?\s*(?:\([^)]*\))?\s*:\s*([^{]+?)\s*\{/g;
+  IMPLEMENTS_RE.lastIndex = 0;
+  while ((m = IMPLEMENTS_RE.exec(content)) !== null) {
+    for (const raw of m[2].split(',')) {
+      const part = raw.trim();
+      if (!part) continue;
+      const name = part.split(/[\s<(]/)[0];
+      if (!name) continue;
+      const kind = part.includes('(') ? 'extends' : 'implements';
+      emit(`class:${filePath}:${m[1]}`, `type:*:${name}`, kind);
+    }
+  }
+
   return { nodes, edges };
 }
 

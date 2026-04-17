@@ -32,6 +32,7 @@ const EXTRACTOR_FILES = [
   './csharp.cjs',
   './fsharp.cjs',
   './sfc.cjs',
+  './markdown.cjs',
 ];
 
 const byExtension = new Map();

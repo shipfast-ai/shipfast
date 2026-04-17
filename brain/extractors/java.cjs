@@ -17,6 +17,9 @@ const RECORD_RE = /(?:public\s+|private\s+|protected\s+|static\s+)*record\s+(\w+
 // Method: <modifiers> ReturnType X(...) [throws ...] { — require `{` or `;` after close paren
 const METHOD_RE = /(?:public|private|protected|static|final|abstract|synchronized|native|default|@\w+(?:\([^)]*\))?|\s)+(?:<[^>]+>\s+)?([A-Za-z_][\w.<>\[\], ?]*)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)(?:\s*throws\s+[^{;]+)?\s*[{;]/g;
 const IMPORT_RE = /\bimport\s+(?:static\s+)?([\w.*]+);/g;
+// Java `class Foo … implements A, B<X>, C` — captures class name and the
+// comma-separated interface list. Runs after CLASS_RE so it complements it.
+const IMPLEMENTS_RE = /\bclass\s+(\w+)(?:\s*<[^>]+>)?(?:\s+extends\s+[\w.<>, ]+?)?\s+implements\s+([\w.<>, ]+?)\s*\{/g;
 
 function resolveImport(fromFile, importPath) { return importPath; }
 
@@ -71,6 +74,15 @@ function extract(content, filePath) {
   IMPORT_RE.lastIndex = 0;
   while ((m = IMPORT_RE.exec(content)) !== null) {
     emit(`file:${filePath}`, `module:${m[1]}`, 'imports');
+  }
+
+  // implements edges — one per interface in the list
+  IMPLEMENTS_RE.lastIndex = 0;
+  while ((m = IMPLEMENTS_RE.exec(content)) !== null) {
+    for (const iface of m[2].split(',')) {
+      const name = iface.trim().split(/[\s<]/)[0];
+      if (name) emit(`class:${filePath}:${m[1]}`, `type:*:${name}`, 'implements');
+    }
   }
 
   return { nodes, edges };

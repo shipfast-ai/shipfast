@@ -3,11 +3,12 @@
 /**
  * ShipFast FileChanged hook (Claude Code v2.1.83+).
  *
- * When Claude Code edits one of a project's manifest files (package.json,
- * Cargo.toml, go.mod, pyproject.toml, requirements.txt, Gemfile,
- * composer.json, pubspec.yaml, .nvmrc, tsconfig.json, etc.), this hook
- * triggers `shipfast refresh` in the project cwd so the brain's dependency
- * and framework signals stay current.
+ * Two responsibilities, fire-and-forget:
+ *   1) Manifest changed (package.json, Cargo.toml, etc.) → `shipfast refresh`
+ *      so the brain's dependency/framework signals stay current.
+ *   2) Source file changed (.ts, .tsx, .py, .php, .md, etc. — anything in
+ *      INDEXABLE_EXTS) → incremental reindex via the local indexer with
+ *      --changed-only so the code graph reflects the edit immediately.
  *
  * Fail-closed: any parse error, missing cwd, or subprocess failure exits 0
  * so this hook never blocks Claude Code. Never returns exit code 2.
@@ -61,6 +62,28 @@ process.stdin.on('end', () => {
 });
 setTimeout(() => { try { handle(JSON.parse(buf || '{}')); } catch {} process.exit(0); }, 200);
 
+// Source-code extensions that should trigger an incremental reindex.
+// Kept aligned with brain/indexer.cjs INDEXABLE. Markdown included (skills/docs).
+const INDEXABLE_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.rs', '.py', '.pyw', '.go', '.java', '.kt', '.kts', '.swift',
+  '.c', '.h', '.cpp', '.cc', '.hpp', '.cxx',
+  '.rb', '.php', '.dart', '.ex', '.exs', '.scala', '.sc',
+  '.zig', '.lua', '.r', '.R', '.jl', '.cs', '.fs', '.fsx',
+  '.vue', '.svelte', '.astro',
+  '.md', '.mdx',
+]);
+
+function findIndexer() {
+  // Look up the installed indexer next to this hook, then fall back to common runtime dirs.
+  const candidates = [
+    path.join(__dirname, '..', 'shipfast', 'brain', 'indexer.cjs'),
+    path.join(require('os').homedir(), '.claude', 'shipfast', 'brain', 'indexer.cjs'),
+    path.join(require('os').homedir(), '.opencode', 'shipfast', 'brain', 'indexer.cjs'),
+  ];
+  return candidates.find(p => fs.existsSync(p));
+}
+
 function handle(payload) {
   // Claude Code FileChanged payload shape (documented):
   //   { hook_event_name: 'FileChanged', file_path: '...', cwd: '...' }
@@ -68,19 +91,31 @@ function handle(payload) {
   const cwd = payload.cwd || process.cwd();
   if (!filePath) return;
 
-  const base = path.basename(filePath);
-  if (!MANIFESTS.has(base) && !/\.(csproj)$/i.test(base)) return;
-
-  // Only refresh if the project has a brain.db — otherwise shipfast init
-  // hasn't been run and there's nothing to refresh.
+  // Only act if the project has a brain.db (shipfast init has been run).
   if (!fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'))) return;
 
-  // Fire and forget. Detach so Claude Code doesn't wait on completion.
-  const child = spawn('shipfast', ['refresh'], {
-    cwd,
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.on('error', () => { /* shipfast not on PATH — silent */ });
-  child.unref();
+  const base = path.basename(filePath);
+  const ext = path.extname(filePath);
+  const isManifest = MANIFESTS.has(base) || /\.(csproj)$/i.test(base);
+  const isSource   = INDEXABLE_EXTS.has(ext);
+  if (!isManifest && !isSource) return;
+
+  // 1) Manifest changes → refresh signals (deps, framework detection, scripts).
+  if (isManifest) {
+    const r = spawn('shipfast', ['refresh'], { cwd, detached: true, stdio: 'ignore' });
+    r.on('error', () => { /* shipfast not on PATH — silent */ });
+    r.unref();
+  }
+
+  // 2) Source-file changes → incremental reindex (--changed-only).
+  if (isSource) {
+    const indexer = findIndexer();
+    if (indexer) {
+      const r = spawn(process.execPath, [indexer, cwd, '--changed-only'], {
+        cwd, detached: true, stdio: 'ignore',
+      });
+      r.on('error', () => { /* silent */ });
+      r.unref();
+    }
+  }
 }

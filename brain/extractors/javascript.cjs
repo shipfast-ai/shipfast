@@ -36,7 +36,36 @@ const FUNC_PATTERNS = [
 ];
 
 const TYPE_RE = /(?:export\s+)?(?:type|interface)\s+(\w+)(?:<[^>]+>)?\s*[={]/g;
-const CLASS_RE = /(?:export\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?/g;
+const CLASS_RE = /(?:export\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?(?:\s+implements\s+([\w,\s]+?))?\s*\{/g;
+
+// Import patterns that also capture the imported NAMES (not just the module path).
+// Used to build a local map { importedName → resolvedTargetFile } so that calls
+// to imported symbols become cross-file `calls` edges.
+const NAMED_IMPORT_RE     = /import\s+(?:(?:[A-Za-z_$][\w$]*)\s*,\s*)?\{([^}]+)\}\s*from\s+['"]([^'"]+)['"]/g;
+const DEFAULT_IMPORT_RE   = /import\s+([A-Za-z_$][\w$]*)(?:\s*,\s*\{[^}]+\})?\s+from\s+['"]([^'"]+)['"]/g;
+const CJS_DESTRUCTURE_RE  = /(?:const|let|var)\s*\{([^}]+)\}\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+const CJS_DEFAULT_RE      = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+// `export` detection — any of:
+//   export function Foo / export class Foo / export const Foo / export type Foo
+//   export default function Foo / export default class Foo
+//   module.exports = Foo  |  module.exports.Foo = …
+//   export { Foo, Bar as Baz }
+const EXPORT_NAMED_RE = /\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var|type|interface|enum)\s+(\w+)/g;
+const EXPORT_CJS_RE = /\bmodule\.exports(?:\.(\w+))?\s*=/g;
+const EXPORT_BLOCK_RE = /\bexport\s*\{([^}]+)\}/g;
+
+// `calls` detection — any identifier followed by `(` that isn't a
+// control-flow keyword or declaration. Scoped to same-file only for safety.
+const CALL_RE = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+const NON_CALL_KEYWORDS = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'instanceof',
+  'new', 'throw', 'await', 'yield', 'delete', 'void', 'in', 'of', 'as',
+  'function', 'class', 'interface', 'type', 'enum', 'const', 'let', 'var',
+  'import', 'export', 'from', 'require', 'async', 'default', 'do', 'else',
+  'try', 'finally', 'break', 'continue', 'case', 'with', 'this', 'super',
+  'true', 'false', 'null', 'undefined'
+]);
 
 // ---- tsconfig alias support ----
 
@@ -158,7 +187,7 @@ function extract(content, filePath, ctx) {
   const { edges, emit } = makeEdgeEmitter();
   const lines = content.split('\n');
 
-  // Imports
+  // Imports (file-level edges)
   for (const pattern of IMPORT_PATTERNS) {
     let m;
     pattern.lastIndex = 0;
@@ -169,6 +198,40 @@ function extract(content, filePath, ctx) {
       emit(`file:${filePath}`, `file:${resolved}`, 'imports');
     }
   }
+
+  // Build a symbol table for cross-file call resolution:
+  //   importedSymbols[name] = resolved target file path (relative)
+  // Only tracks local imports (./foo, @/foo, ~/foo, #/foo). NPM packages
+  // are intentionally skipped — they aren't in the graph anyway.
+  const importedSymbols = {};
+  function addSym(name, mod) {
+    if (!name || !mod || !isLocalImport(mod)) return;
+    const resolved = resolveImport(filePath, mod, ctx);
+    if (resolved) importedSymbols[name] = resolved;
+  }
+  NAMED_IMPORT_RE.lastIndex = 0;
+  let mi;
+  while ((mi = NAMED_IMPORT_RE.exec(content)) !== null) {
+    for (const part of mi[1].split(',')) {
+      const p = part.trim();
+      if (!p) continue;
+      // `Orig as Alias` → importedSymbols has { Alias: mod } (alias is what the caller will use)
+      const [, , alias] = p.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/) || [];
+      const bare = p.match(/^([A-Za-z_$][\w$]*)$/);
+      addSym(alias || (bare && bare[1]), mi[2]);
+    }
+  }
+  DEFAULT_IMPORT_RE.lastIndex = 0;
+  while ((mi = DEFAULT_IMPORT_RE.exec(content)) !== null) addSym(mi[1], mi[2]);
+  CJS_DESTRUCTURE_RE.lastIndex = 0;
+  while ((mi = CJS_DESTRUCTURE_RE.exec(content)) !== null) {
+    for (const part of mi[1].split(',')) {
+      const name = part.trim().split(/\s*:\s*/).pop().trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) addSym(name, mi[2]);
+    }
+  }
+  CJS_DEFAULT_RE.lastIndex = 0;
+  while ((mi = CJS_DEFAULT_RE.exec(content)) !== null) addSym(mi[1], mi[2]);
 
   // Functions
   for (const pattern of FUNC_PATTERNS) {
@@ -216,6 +279,71 @@ function extract(content, filePath, ctx) {
     });
     if (mc[2]) {
       emit(`class:${filePath}:${mc[1]}`, `class:*:${mc[2]}`, 'extends');
+    }
+    if (mc[3]) {
+      for (const iface of mc[3].split(',')) {
+        const name = iface.trim();
+        if (name) emit(`class:${filePath}:${mc[1]}`, `type:*:${name}`, 'implements');
+      }
+    }
+  }
+
+  // Exports — named declarations, CJS, and re-export blocks.
+  EXPORT_NAMED_RE.lastIndex = 0;
+  let me_;
+  while ((me_ = EXPORT_NAMED_RE.exec(content)) !== null) {
+    emit(`file:${filePath}`, `symbol:${filePath}:${me_[1]}`, 'exports');
+  }
+  EXPORT_CJS_RE.lastIndex = 0;
+  while ((me_ = EXPORT_CJS_RE.exec(content)) !== null) {
+    const name = me_[1] || 'default';
+    emit(`file:${filePath}`, `symbol:${filePath}:${name}`, 'exports');
+  }
+  EXPORT_BLOCK_RE.lastIndex = 0;
+  while ((me_ = EXPORT_BLOCK_RE.exec(content)) !== null) {
+    for (const part of me_[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/)[0].trim();
+      if (name && /^\w+$/.test(name)) {
+        emit(`file:${filePath}`, `symbol:${filePath}:${name}`, 'exports');
+      }
+    }
+  }
+
+  // Calls — same-file only. For each function node, scan its body lines for
+  // identifier calls that match another function node declared in this file.
+  const fnIds = new Map(); // name -> node id
+  for (const n of nodes) if (n.kind === 'function') fnIds.set(n.name, n.id);
+  // Skip call-graph extraction on minified/bundled files. They have hundreds
+  // of single-letter function names, which triggers O(n²) bogus edges.
+  const looksMinified =
+    fnIds.size > 200                                                     // too many fns in one file
+    || /\.min\.|\.bundle\.|\.chunk\./.test(filePath)                     // minified by filename
+    || (content.length > 50_000 && lines.length > 0                      // dense long-line ratio
+        && content.length / lines.length > 400);
+  if ((fnIds.size >= 2 || Object.keys(importedSymbols).length > 0) && !looksMinified) {
+    for (const caller of nodes) {
+      if (caller.kind !== 'function') continue;
+      const body = lines.slice(caller.line_start - 1, caller.line_end).join('\n');
+      CALL_RE.lastIndex = 0;
+      const seen = new Set();
+      let mCall;
+      while ((mCall = CALL_RE.exec(body)) !== null) {
+        const callee = mCall[1];
+        if (callee === caller.name) continue;        // self-recursion, skip
+        if (NON_CALL_KEYWORDS.has(callee)) continue; // keywords
+        if (seen.has(callee)) continue;              // dedupe per caller
+        seen.add(callee);
+        // 1) Same-file function → direct edge.
+        const sameFile = fnIds.get(callee);
+        if (sameFile) { emit(caller.id, sameFile, 'calls'); continue; }
+        // 2) Imported symbol → edge to fn in target file (may not exist yet if
+        //    target file isn't indexed yet; brain_impact/trace still traverses
+        //    edges by string id).
+        const targetFile = importedSymbols[callee];
+        if (targetFile) {
+          emit(caller.id, `fn:${targetFile}:${callee}`, 'calls');
+        }
+      }
     }
   }
 

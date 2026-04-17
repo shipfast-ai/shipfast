@@ -160,6 +160,54 @@ function lineOfIndex(content, index) {
   return n;
 }
 
+/**
+ * Shared call-graph extractor. Emits same-file and cross-file `calls` edges.
+ *
+ *   content          full file text
+ *   lines            content.split('\n')
+ *   fnNodes          array of function/method node objects (with .name, .id, .line_start, .line_end)
+ *   importedSymbols  { importedName → resolvedTargetFilePath }  (may be empty)
+ *   filePath         relative path, used only for minified filename check
+ *   emit             edge emitter from makeEdgeEmitter()
+ *   callRe           regex capturing identifier-then-paren (default: /\b([A-Za-z_$][\w$]*)\s*\(/g)
+ *   nonCallKeywords  Set<string> of language keywords to ignore as callees
+ *
+ * Bails out on minified-looking content to avoid O(n²) edge explosions.
+ */
+const DEFAULT_CALL_RE = /\b([A-Za-z_$][\w$]*)\s*\(/g;
+function emitCalls({ content, lines, fnNodes, importedSymbols, filePath, emit, callRe, nonCallKeywords }) {
+  const fnIds = new Map();
+  for (const n of fnNodes) if (n && n.kind === 'function') fnIds.set(n.name, n.id);
+  if (fnIds.size === 0 && (!importedSymbols || Object.keys(importedSymbols).length === 0)) return;
+
+  const isMin =
+    fnIds.size > 200
+    || /\.min\.|\.bundle\.|\.chunk\./.test(filePath)
+    || (content.length > 50_000 && lines.length > 0 && content.length / lines.length > 400);
+  if (isMin) return;
+
+  const re = callRe || DEFAULT_CALL_RE;
+  const skip = nonCallKeywords || new Set();
+  for (const caller of fnNodes) {
+    if (!caller || caller.kind !== 'function') continue;
+    const body = lines.slice(caller.line_start - 1, caller.line_end).join('\n');
+    re.lastIndex = 0;
+    const seen = new Set();
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      const callee = m[1];
+      if (callee === caller.name) continue;  // self-recursion
+      if (skip.has(callee)) continue;
+      if (seen.has(callee)) continue;
+      seen.add(callee);
+      const sameFile = fnIds.get(callee);
+      if (sameFile) { emit(caller.id, sameFile, 'calls'); continue; }
+      const targetFile = importedSymbols && importedSymbols[callee];
+      if (targetFile) emit(caller.id, `fn:${targetFile}:${callee}`, 'calls');
+    }
+  }
+}
+
 module.exports = {
   hashContent,
   findBraceBlock,
@@ -168,4 +216,5 @@ module.exports = {
   stripBlockComments,
   makeEdgeEmitter,
   lineOfIndex,
+  emitCalls,
 };

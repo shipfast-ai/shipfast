@@ -191,6 +191,137 @@ const TOOLS = {
     }
   },
 
+  brain_trace: {
+    description: 'Find paths between two nodes in the code graph. BFS through edges, returns every path up to max_depth. Answers questions like "how does X reach Y?" or "what call chain connects the button click to the db write?". Uses the same edges table as brain_impact.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Starting node id. e.g. "fn:src/handlers/button.ts:onClick"' },
+        to:   { type: 'string', description: 'Target node id. e.g. "fn:src/db/user.ts:save"' },
+        kinds: { type: 'string', description: 'Comma-separated edge kinds to follow. Default: imports,calls,exports,extends.' },
+        max_depth: { type: 'number', description: 'Max path length. Default 6. Max 10.' },
+        max_paths: { type: 'number', description: 'Max number of paths to return. Default 10.' }
+      },
+      required: ['from', 'to']
+    },
+    handler({ from, to, kinds, max_depth, max_paths }) {
+      if (!from || !to) return { error: 'from and to are required' };
+      const maxDepth = Math.min(10, Math.max(1, parseInt(max_depth) || 6));
+      const maxPaths = Math.min(50, Math.max(1, parseInt(max_paths) || 10));
+      const kindList = (kinds || 'imports,calls,exports,extends').split(',').map(s => s.trim()).filter(Boolean);
+      const kindClause = 'kind IN (' + kindList.map(k => `'${esc(k)}'`).join(',') + ')';
+
+      // BFS. Each frontier entry carries the path taken to reach it.
+      const paths = [];
+      const visited = new Map(); // node -> shortest depth seen (pruning)
+      let frontier = [{ node: from, path: [from], edges: [] }];
+      visited.set(from, 0);
+
+      for (let depth = 0; depth < maxDepth && frontier.length && paths.length < maxPaths; depth++) {
+        const ids = frontier.map(f => `'${esc(f.node)}'`).join(',');
+        if (!ids) break;
+        const rows = query(
+          `SELECT source, target, kind FROM edges WHERE source IN (${ids}) AND ${kindClause} LIMIT 2000`
+        );
+        const next = [];
+        for (const row of rows) {
+          const parents = frontier.filter(f => f.node === row.source);
+          for (const p of parents) {
+            if (p.path.includes(row.target)) continue; // no cycles
+            const newPath = [...p.path, row.target];
+            const newEdges = [...p.edges, row.kind];
+            if (row.target === to) {
+              paths.push({ length: newPath.length - 1, path: newPath, edges: newEdges });
+              if (paths.length >= maxPaths) break;
+              continue;
+            }
+            const seen = visited.get(row.target);
+            if (seen != null && seen <= depth + 1) continue;
+            visited.set(row.target, depth + 1);
+            next.push({ node: row.target, path: newPath, edges: newEdges });
+          }
+          if (paths.length >= maxPaths) break;
+        }
+        frontier = next;
+      }
+
+      return {
+        from, to,
+        found: paths.length,
+        paths: paths.sort((a, b) => a.length - b.length)
+      };
+    }
+  },
+
+  brain_impact: {
+    description: 'Trace ripple effects in the code graph. Walks the edges table (imports/calls/implements/depends/mutates/exports/extends/co_changes) to find what depends on a node (upstream), what a node depends on (downstream), or both. Use BEFORE editing files to understand consumers, and BEFORE answering "what breaks if I change X?".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node: { type: 'string', description: 'Node id to trace. Examples: "file:src/auth.ts", "fn:validateToken", "type:User". Use brain_search to find candidates.' },
+        direction: {
+          type: 'string',
+          description: 'upstream = things that point AT this node (consumers); downstream = things this node points TO (dependencies); both = union. Default: upstream.',
+          enum: ['upstream', 'downstream', 'both']
+        },
+        kinds: { type: 'string', description: 'Comma-separated edge kinds to follow. Default: all. Options: imports, calls, implements, depends, mutates, exports, extends, co_changes.' },
+        depth: { type: 'number', description: 'Traversal depth. Default 1 (direct neighbors). Max 3.' },
+        limit: { type: 'number', description: 'Max results per level. Default 30.' }
+      },
+      required: ['node']
+    },
+    handler({ node, direction, kinds, depth, limit }) {
+      if (!node) return { error: 'node is required (e.g. "file:src/auth.ts" or "fn:validateToken")' };
+      const dir = (direction === 'downstream' || direction === 'both') ? direction : 'upstream';
+      const maxDepth = Math.min(3, Math.max(1, parseInt(depth) || 1));
+      const cap = Math.min(100, parseInt(limit) || 30);
+
+      const kindList = (kinds || '').split(',').map(s => s.trim()).filter(Boolean);
+      const kindClause = kindList.length
+        ? 'AND e.kind IN (' + kindList.map(k => `'${esc(k)}'`).join(',') + ')'
+        : '';
+
+      const seen = new Set([node]);
+      const levels = [];
+      let frontier = [node];
+
+      for (let d = 0; d < maxDepth && frontier.length; d++) {
+        const inList = frontier.map(id => `'${esc(id)}'`).join(',');
+        const rows = [];
+
+        if (dir === 'upstream' || dir === 'both') {
+          rows.push(...query(
+            `SELECT e.source as id, e.kind as edge, n.kind, n.name, n.file_path, '← upstream' as dir ` +
+            `FROM edges e JOIN nodes n ON n.id = e.source ` +
+            `WHERE e.target IN (${inList}) ${kindClause} LIMIT ${cap}`
+          ));
+        }
+        if (dir === 'downstream' || dir === 'both') {
+          rows.push(...query(
+            `SELECT e.target as id, e.kind as edge, n.kind, n.name, n.file_path, '→ downstream' as dir ` +
+            `FROM edges e JOIN nodes n ON n.id = e.target ` +
+            `WHERE e.source IN (${inList}) ${kindClause} LIMIT ${cap}`
+          ));
+        }
+
+        const fresh = rows.filter(r => !seen.has(r.id));
+        fresh.forEach(r => seen.add(r.id));
+        if (!fresh.length) break;
+
+        levels.push({ depth: d + 1, count: fresh.length, nodes: fresh });
+        frontier = fresh.map(r => r.id);
+      }
+
+      return {
+        root: node,
+        direction: dir,
+        depth_reached: levels.length,
+        total_touched: seen.size - 1,
+        levels
+      };
+    }
+  },
+
   brain_search: {
     description: 'Search the codebase knowledge graph for files, functions, types, or classes by name. Searches local + all linked repos.',
     inputSchema: {
