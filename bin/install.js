@@ -156,13 +156,13 @@ function installFor(key, runtime) {
   // Copy commands
   const cmdDir = path.join(dir, 'commands', 'sf');
   fs.mkdirSync(cmdDir, { recursive: true });
-  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','worktree.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md','rollback.md','cost.md','diff.md'])
+  for (const f of ['do.md','plan.md','verify.md','check-plan.md','map.md','worktree.md','status.md','undo.md','config.md','brain.md','learn.md','discuss.md','project.md','resume.md','ship.md','help.md','milestone.md','rollback.md','cost.md','diff.md','enable.md','disable.md'])
     copy('commands/sf/' + f, path.join(cmdDir, f));
 
   // Copy hooks
   const hooksDir = path.join(dir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
-  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js','sf-signal-refresh.js','sf-precompact.js'])
+  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js','sf-signal-refresh.js','sf-precompact.js','sf-prompt-router.js'])
     copy('hooks/' + f, path.join(hooksDir, f));
 
   // Copy MCP server
@@ -800,6 +800,8 @@ function cmdHelp() {
   console.log(`  ${cyan}/sf-learn${reset} <pattern>   Teach a pattern or lesson`);
   console.log(`  ${cyan}/sf-config${reset}            Set model tiers and preferences`);
   console.log(`  ${cyan}/sf-milestone${reset}         Complete or start a milestone`);
+  console.log(`  ${cyan}/sf-enable${reset}            Auto-route every plain prompt through /sf:do`);
+  console.log(`  ${cyan}/sf-disable${reset}           Stop auto-routing`);
   console.log(`  ${cyan}/sf-help${reset}              Show all commands\n`);
 }
 
@@ -830,6 +832,9 @@ function writeSettings(dir, hooksDir) {
     ['FileChanged',  'sf-signal-refresh.js'],
     // Claude Code v2.1.105+ — auto-checkpoint before session compaction
     ['PreCompact',   'sf-precompact.js'],
+    // v1.9.1: auto-router — rewrites plain prompts to /sf:do when SF_AUTO_ROUTE=1.
+    // Dormant unless env var is set; safe to register unconditionally.
+    ['UserPromptSubmit', 'sf-prompt-router.js'],
   ]) {
     s.hooks[evt] = s.hooks[evt] || [];
     if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));

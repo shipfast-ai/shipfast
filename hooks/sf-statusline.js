@@ -10,6 +10,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// v1.9.1: when the auto-route flag file exists, badge the statusline with ⚡.
+const AUTO_ROUTE_FLAG = path.join(os.homedir(), '.shipfast', 'auto-route.enabled');
+
 let input = '';
 const stdinTimeout = setTimeout(() => process.exit(0), 10000);
 process.stdin.setEncoding('utf8');
@@ -39,9 +42,11 @@ process.stdin.on('end', () => {
       timestamp: Math.floor(Date.now() / 1000)
     }));
 
-    // Build status line
+    // Build status line — prefix with ⚡ badge when auto-route is enabled.
     const bar = buildBar(usedPct);
-    const statusLine = `SF ${bar} ${usedPct}%`;
+    const autoRouteOn = fs.existsSync(AUTO_ROUTE_FLAG);
+    const prefix = autoRouteOn ? 'SF⚡' : 'SF';
+    const statusLine = `${prefix} ${bar} ${usedPct}%`;
 
     const output = {
       hookSpecificOutput: {

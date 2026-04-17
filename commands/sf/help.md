@@ -70,6 +70,8 @@ PARALLEL WORK
 
 CONFIG
   /sf-config               View or set model tiers and preferences.
+  /sf-enable               Auto-route every plain prompt through /sf:do.
+  /sf-disable              Stop auto-routing; plain prompts go to Claude untouched.
   /sf-help                 Show this help.
 
 WORKFLOWS

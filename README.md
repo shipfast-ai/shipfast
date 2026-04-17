@@ -336,6 +336,28 @@ Models are **dynamically selected** — not fixed. The feedback loop tracks whic
 
 ---
 
+## Auto-routing (opt-in)
+
+Tired of typing `/sf:do` every turn? Toggle auto-routing from inside Claude Code:
+
+```
+/sf:enable     # every plain prompt → /sf:do
+/sf:disable    # plain prompts go to Claude untouched
+```
+
+When enabled, the statusline shows a ⚡ badge: `SF⚡ [====     ] 40%`. `/sf:status` also prints `Auto-route: ON/OFF`.
+
+**How it works:** ShipFast installs a `UserPromptSubmit` hook that fires on every user message. `/sf:enable` creates a flag file at `~/.shipfast/auto-route.enabled`; while the file exists, the hook injects a directive telling the model to invoke `/sf:do <your text>` instead of editing directly. `/sf:disable` removes the file. Off by default — existing workflows are untouched.
+
+**Bypass rules** (hook stays silent, no routing) even when enabled:
+
+- message starts with `/` → slash command
+- starts with `!` → explicit raw escape
+- starts with or ends with `?` → question
+- fewer than 4 chars → short ack like "yes" / "ok"
+
+---
+
 ## Self-Improving Memory
 
 ShipFast gets cheaper every session:

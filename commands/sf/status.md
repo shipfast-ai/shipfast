@@ -26,6 +26,12 @@ Use the `brain_status` MCP tool (no parameters needed) — returns counts for no
 cat ~/.claude/shipfast/version 2>/dev/null || cat ~/.cursor/shipfast/version 2>/dev/null || cat ~/.gemini/shipfast/version 2>/dev/null || echo "unknown"
 ```
 
+Also check the auto-route flag:
+
+```bash
+[ -f ~/.shipfast/auto-route.enabled ] && echo ON || echo OFF
+```
+
 Then output EXACTLY this format. Nothing else:
 
 ```
@@ -34,6 +40,7 @@ ShipFast v[version]
 Brain: [nodes] nodes | [edges] edges | [decisions] decisions | [learnings] learnings | [hot_files] hot files
 Tasks: [active] active | [passed] completed
 Checkpoints: [checkpoints] available
+Auto-route: [ON/OFF]
 ```
 
 STOP after printing this. No analysis. No suggestions. No insights.
