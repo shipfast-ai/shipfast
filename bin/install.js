@@ -162,7 +162,7 @@ function installFor(key, runtime) {
   // Copy hooks
   const hooksDir = path.join(dir, 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
-  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js','sf-signal-refresh.js','sf-precompact.js','sf-prompt-router.js'])
+  for (const f of ['sf-context-monitor.js','sf-statusline.js','sf-first-run.js','sf-prompt-guard.js','sf-signal-refresh.js','sf-precompact.js','sf-prompt-router.js','sf-statusbar.js'])
     copy('hooks/' + f, path.join(hooksDir, f));
 
   // Copy MCP server
@@ -839,6 +839,14 @@ function writeSettings(dir, hooksDir) {
     s.hooks[evt] = s.hooks[evt] || [];
     if (!has(s.hooks[evt], file)) s.hooks[evt].push(mk('node ' + path.join(hooksDir, file)));
   }
+
+  // v1.9.2: persistent statusline — Claude Code invokes this every few seconds
+  // and renders stdout above the input prompt. Shows SF⚡ badge when auto-route
+  // is enabled, plus model name + session cost.
+  s.statusLine = {
+    type: 'command',
+    command: 'node ' + path.join(hooksDir, 'sf-statusbar.js')
+  };
 
   // Auto-configure safe permission allowlist — no --dangerously-skip-permissions needed
   if (!s.permissions) s.permissions = {};

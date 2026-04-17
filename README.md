@@ -345,7 +345,11 @@ Tired of typing `/sf:do` every turn? Toggle auto-routing from inside Claude Code
 /sf:disable    # plain prompts go to Claude untouched
 ```
 
-When enabled, the statusline shows a ⚡ badge: `SF⚡ [====     ] 40%`. `/sf:status` also prints `Auto-route: ON/OFF`.
+When enabled, the persistent statusline above your prompt shows a ⚡ badge:
+```
+SF⚡ · Opus · $0.12
+```
+`/sf:status` also prints `Auto-route: ON/OFF`.
 
 **How it works:** ShipFast installs a `UserPromptSubmit` hook that fires on every user message. `/sf:enable` creates a flag file at `~/.shipfast/auto-route.enabled`; while the file exists, the hook injects a directive telling the model to invoke `/sf:do <your text>` instead of editing directly. `/sf:disable` removes the file. Off by default — existing workflows are untouched.
 
