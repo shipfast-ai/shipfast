@@ -815,4 +815,15 @@ describe('sfc extractor', () => {
     const r = registry.extract('.astro', src, 'x.astro', {});
     assert.ok(has(r, 'function', 'helper'));
   });
+  it('tolerates leading blank lines before Astro fence', () => {
+    const src = `\n---\nimport L from '../a.astro'\nexport function f() {}\n---\n<L/>`;
+    const r = registry.extract('.astro', src, 'x.astro', {});
+    assert.ok(has(r, 'function', 'f'));
+    assert.ok(r.edges.some(e => e.target === 'file:../a.astro'));
+  });
+  it('tolerates CRLF line endings in Astro frontmatter', () => {
+    const src = '---\r\nimport L from \'../a.astro\'\r\nexport function g() {}\r\n---\r\n<L/>';
+    const r = registry.extract('.astro', src, 'x.astro', {});
+    assert.ok(has(r, 'function', 'g'));
+  });
 });

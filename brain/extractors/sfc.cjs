@@ -18,10 +18,12 @@ const EXTENSIONS = ['.vue', '.svelte', '.astro'];
 
 function extractScriptBlock(content, ext) {
   if (ext === '.astro') {
-    // Astro frontmatter is between top-level --- ... ---
-    const m = content.match(/^---\n([\s\S]*?)\n---/);
+    // Astro frontmatter is between top-level --- ... ---.
+    // Tolerate leading blank lines / BOM before the opening fence.
+    const m = content.match(/^\s*---\r?\n([\s\S]*?)\r?\n---/);
     if (!m) return null;
-    const startLine = 2;  // first line after initial ---
+    const lead = content.slice(0, m.index + m[0].indexOf('---'));
+    const startLine = lead.split('\n').length + 1;
     return { code: m[1], startLine };
   }
   // Vue and Svelte: <script> ... </script>, possibly with attributes
