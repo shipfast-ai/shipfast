@@ -7,8 +7,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
+const { promisify } = require('util');
 const { DB_NAME } = require('../core/constants.cjs');
+
+const execFileAsync = promisify(execFile);
 
 // --- Database initialization ---
 
@@ -121,6 +124,55 @@ function getBlastRadius(cwd, filePaths, maxDepth = 3) {
   }
 
   return local.slice(0, 30);
+}
+
+// Async variant: runs local + each linked repo in parallel.
+// Sync getBlastRadius stays unchanged for existing consumers (context-builder.cjs).
+async function getBlastRadiusAsync(cwd, filePaths, maxDepth = 3) {
+  const fileList = filePaths.map(f => `'file:${esc(f)}'`).join(',');
+  const sql = `
+    WITH RECURSIVE affected(id, depth) AS (
+      SELECT id, 0 FROM nodes WHERE id IN (${fileList})
+      UNION
+      SELECT e.target, a.depth + 1 FROM edges e
+      JOIN affected a ON e.source = a.id
+      WHERE a.depth < ${maxDepth} AND e.kind IN ('imports', 'calls', 'depends')
+    )
+    SELECT DISTINCT n.file_path, n.name, n.signature, n.kind
+    FROM nodes n JOIN affected a ON n.id = a.id
+    WHERE n.signature IS NOT NULL AND n.signature != ''
+    ORDER BY a.depth ASC
+    LIMIT 30
+  `;
+
+  const localDb = getBrainPath(cwd);
+  const targets = [{ db: localDb, name: null }];
+
+  const linkedConfig = getConfig(cwd, 'linked_repos');
+  if (linkedConfig) {
+    try {
+      const linkedPaths = JSON.parse(linkedConfig);
+      for (const repoPath of linkedPaths) {
+        const linkedDb = path.join(repoPath, '.shipfast', 'brain.db');
+        if (fs.existsSync(linkedDb)) targets.push({ db: linkedDb, name: path.basename(repoPath) });
+      }
+    } catch { /* linked_repos not valid JSON */ }
+  }
+
+  const runs = targets.map(({ db, name }) =>
+    execFileAsync('sqlite3', ['-json', db, sql], { encoding: 'utf8' })
+      .then(({ stdout }) => {
+        const trimmed = (stdout || '').trim();
+        if (!trimmed) return [];
+        let parsed;
+        try { parsed = JSON.parse(trimmed); } catch { return []; }
+        if (name) parsed.forEach(row => { row._repo = name; });
+        return parsed;
+      })
+      .catch(() => [])
+  );
+  const all = (await Promise.all(runs)).flat();
+  return all.slice(0, 30);
 }
 
 function getSignaturesForFile(cwd, filePath) {
@@ -366,6 +418,35 @@ function esc(s) {
   return String(s).replace(/'/g, "''");
 }
 
+// Escape %, _, \ for use inside LIKE '%...%' ESCAPE '\\'.
+// Callers MUST append ESCAPE '\\' to the LIKE clause.
+function escLike(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
+    .replace(/'/g, "''");
+}
+
+// Throws on bad input destined for SQL; returns the normalized string otherwise.
+function validateSafeString(s, { maxLen = 200, field = 'input', allowEmpty = true } = {}) {
+  if (s == null) {
+    if (allowEmpty) return '';
+    throw new Error(`${field} is required`);
+  }
+  if (typeof s !== 'string') {
+    throw new Error(`${field} must be a string, got ${typeof s}`);
+  }
+  if (s.indexOf('\0') !== -1) {
+    throw new Error(`${field} contains NUL byte`);
+  }
+  if (s.length > maxLen) {
+    throw new Error(`${field} exceeds max length ${maxLen}`);
+  }
+  return s;
+}
+
 module.exports = {
   getBrainPath,
   initBrain,
@@ -375,6 +456,7 @@ module.exports = {
   upsertNode,
   addEdge,
   getBlastRadius,
+  getBlastRadiusAsync,
   getSignaturesForFile,
   getStaleNodes,
   setContext,
@@ -401,6 +483,8 @@ module.exports = {
   setConfig,
   buildAgentContext,
   esc,
+  escLike,
+  validateSafeString,
   // Model Performance
   recordModelOutcome,
   // Seeds

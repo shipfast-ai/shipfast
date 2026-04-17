@@ -5,7 +5,7 @@
  * 10x faster than v1 (single sqlite3 call instead of per-insert).
  *
  * Supports: --changed-only (git-dirty files only, ~100ms incremental)
- * Languages: JS/TS/JSX/TSX, Rust, Python, Go
+ * Language-specific extraction is delegated to brain/extractors/ registry.
  */
 
 const fs = require('fs');
@@ -13,6 +13,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const brain = require('./index.cjs');
+const registry = require('./extractors/index.cjs');
 
 // Source files worth indexing (code that humans write)
 const INDEXABLE = new Set([
@@ -156,6 +157,7 @@ function hashContent(content) {
 // ============================================================
 
 const esc = brain.esc;
+const escLike = brain.escLike || ((s) => String(s == null ? '' : s).replace(/'/g, "''"));
 
 // ============================================================
 // Batch SQL collector
@@ -164,6 +166,21 @@ const esc = brain.esc;
 class BatchCollector {
   constructor() {
     this.statements = [];
+  }
+
+  // Purge stale per-file symbol nodes and outbound edges before re-inserting.
+  // Runs inside the same transaction as the new INSERTs so the update is atomic.
+  cleanupFile(filePath) {
+    const p = esc(filePath);
+    const pLike = escLike(filePath);
+    this.statements.push(
+      `DELETE FROM nodes WHERE file_path = '${p}' AND kind != 'file';`,
+      `DELETE FROM edges WHERE source = 'file:${p}' ` +
+        `OR source LIKE 'fn:${pLike}:%' ESCAPE '\\' ` +
+        `OR source LIKE 'type:${pLike}:%' ESCAPE '\\' ` +
+        `OR source LIKE 'class:${pLike}:%' ESCAPE '\\' ` +
+        `OR source LIKE 'component:${pLike}:%' ESCAPE '\\';`
+    );
   }
 
   addNode(node) {
@@ -185,201 +202,6 @@ class BatchCollector {
   }
 
   get count() { return this.statements.length; }
-}
-
-// ============================================================
-// Regex extraction (JS/TS)
-// ============================================================
-
-function extractJS(content, filePath) {
-  const nodes = [];
-  const edges = [];
-  const lines = content.split('\n');
-  let match;
-
-  // Imports
-  const importRe = /import\s+(?:{([^}]+)}|(\w+))\s+from\s+['"]([^'"]+)['"]/g;
-  while ((match = importRe.exec(content)) !== null) {
-    const target = match[3];
-    if (target.startsWith('.') || target.startsWith('@/') || target.startsWith('~/')) {
-      edges.push({ source: `file:${filePath}`, target: `file:${resolveImport(filePath, target)}`, kind: 'imports' });
-    }
-  }
-
-  // Functions
-  const funcPatterns = [
-    /(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(\([^)]*\))[^{]*/g,
-    /(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?(\([^)]*\))\s*(?::\s*\S+\s*)?=>/g,
-  ];
-  for (const pattern of funcPatterns) {
-    while ((match = pattern.exec(content)) !== null) {
-      const lineNum = content.slice(0, match.index).split('\n').length;
-      const name = match[1];
-      const params = match[2] || '';
-      const endLine = findBlockEnd(lines, lineNum - 1);
-      nodes.push({
-        id: `fn:${filePath}:${name}`, kind: 'function', name,
-        file_path: filePath, line_start: lineNum, line_end: endLine,
-        signature: `${name}${params}`,
-        hash: hashContent(lines.slice(lineNum - 1, endLine).join('\n'))
-      });
-    }
-  }
-
-  // Types/interfaces
-  const typeRe = /(?:export\s+)?(?:type|interface)\s+(\w+)(?:<[^>]+>)?\s*[={]/g;
-  while ((match = typeRe.exec(content)) !== null) {
-    const lineNum = content.slice(0, match.index).split('\n').length;
-    const endLine = findBlockEnd(lines, lineNum - 1);
-    nodes.push({
-      id: `type:${filePath}:${match[1]}`, kind: 'type', name: match[1],
-      file_path: filePath, line_start: lineNum, line_end: endLine,
-      signature: `type ${match[1]}`,
-      hash: hashContent(lines.slice(lineNum - 1, endLine).join('\n'))
-    });
-  }
-
-  // Classes
-  const classRe = /(?:export\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?/g;
-  while ((match = classRe.exec(content)) !== null) {
-    const lineNum = content.slice(0, match.index).split('\n').length;
-    const endLine = findBlockEnd(lines, lineNum - 1);
-    nodes.push({
-      id: `class:${filePath}:${match[1]}`, kind: 'class', name: match[1],
-      file_path: filePath, line_start: lineNum, line_end: endLine,
-      signature: `class ${match[1]}${match[2] ? ` extends ${match[2]}` : ''}`,
-      hash: hashContent(lines.slice(lineNum - 1, endLine).join('\n'))
-    });
-    if (match[2]) {
-      edges.push({ source: `class:${filePath}:${match[1]}`, target: `class:*:${match[2]}`, kind: 'extends' });
-    }
-  }
-
-  // React components
-  const componentRe = /(?:export\s+)?(?:const|function)\s+([A-Z]\w+)\s*[=:]/g;
-  while ((match = componentRe.exec(content)) !== null) {
-    const lineNum = content.slice(0, match.index).split('\n').length;
-    if (!nodes.find(n => n.id === `fn:${filePath}:${match[1]}`)) {
-      nodes.push({
-        id: `component:${filePath}:${match[1]}`, kind: 'component', name: match[1],
-        file_path: filePath, line_start: lineNum,
-        line_end: findBlockEnd(lines, lineNum - 1),
-        signature: `<${match[1]} />`, hash: ''
-      });
-    }
-  }
-
-  return { nodes, edges };
-}
-
-// ============================================================
-// Rust extraction
-// ============================================================
-
-function extractRust(content, filePath) {
-  const nodes = [];
-  const edges = [];
-  const lines = content.split('\n');
-  let match;
-
-  const fnRe = /(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]+>)?\s*(\([^)]*\))(?:\s*->\s*([^\s{]+))?/g;
-  while ((match = fnRe.exec(content)) !== null) {
-    const lineNum = content.slice(0, match.index).split('\n').length;
-    const endLine = findBlockEnd(lines, lineNum - 1);
-    nodes.push({
-      id: `fn:${filePath}:${match[1]}`, kind: 'function', name: match[1],
-      file_path: filePath, line_start: lineNum, line_end: endLine,
-      signature: `fn ${match[1]}${match[2]}${match[3] ? ` -> ${match[3]}` : ''}`,
-      hash: hashContent(lines.slice(lineNum - 1, endLine).join('\n'))
-    });
-  }
-
-  for (const [re, prefix] of [[/(?:pub\s+)?struct\s+(\w+)/g, 'struct'], [/(?:pub\s+)?enum\s+(\w+)/g, 'enum']]) {
-    while ((match = re.exec(content)) !== null) {
-      const lineNum = content.slice(0, match.index).split('\n').length;
-      nodes.push({
-        id: `type:${filePath}:${match[1]}`, kind: 'type', name: match[1],
-        file_path: filePath, line_start: lineNum,
-        line_end: findBlockEnd(lines, lineNum - 1),
-        signature: `${prefix} ${match[1]}`, hash: ''
-      });
-    }
-  }
-
-  const useRe = /(?:pub\s+)?(?:use|mod)\s+([a-z_:]+)/g;
-  while ((match = useRe.exec(content)) !== null) {
-    edges.push({ source: `file:${filePath}`, target: `module:${match[1]}`, kind: 'imports' });
-  }
-
-  return { nodes, edges };
-}
-
-// ============================================================
-// Python extraction
-// ============================================================
-
-function extractPython(content, filePath) {
-  const nodes = [];
-  const edges = [];
-  const lines = content.split('\n');
-  let match;
-
-  const fnRe = /^(\s*)(?:async\s+)?def\s+(\w+)\s*\(([^)]*)\)/gm;
-  while ((match = fnRe.exec(content)) !== null) {
-    const lineNum = content.slice(0, match.index).split('\n').length;
-    const indent = match[1].length;
-    let endLine = lineNum;
-    for (let i = lineNum; i < lines.length; i++) {
-      if (lines[i].trim() && lines[i].match(/^(\s*)/)[1].length <= indent && i > lineNum - 1) break;
-      endLine = i + 1;
-    }
-    nodes.push({
-      id: `fn:${filePath}:${match[2]}`, kind: 'function', name: match[2],
-      file_path: filePath, line_start: lineNum, line_end: endLine,
-      signature: `def ${match[2]}(${match[3].slice(0, 60)})`,
-      hash: hashContent(lines.slice(lineNum - 1, endLine).join('\n'))
-    });
-  }
-
-  const classRe = /^class\s+(\w+)(?:\(([^)]*)\))?:/gm;
-  while ((match = classRe.exec(content)) !== null) {
-    const lineNum = content.slice(0, match.index).split('\n').length;
-    nodes.push({
-      id: `class:${filePath}:${match[1]}`, kind: 'class', name: match[1],
-      file_path: filePath, line_start: lineNum, line_end: lineNum,
-      signature: `class ${match[1]}${match[2] ? `(${match[2]})` : ''}`, hash: ''
-    });
-  }
-
-  const importRe = /^(?:from\s+(\S+)\s+)?import\s+(.+)/gm;
-  while ((match = importRe.exec(content)) !== null) {
-    const target = match[1] || match[2].split(',')[0].trim();
-    if (target.startsWith('.')) {
-      edges.push({ source: `file:${filePath}`, target: `file:${target}`, kind: 'imports' });
-    }
-  }
-
-  return { nodes, edges };
-}
-
-// ============================================================
-// Helpers
-// ============================================================
-
-function findBlockEnd(lines, startIdx) {
-  let braceCount = 0, found = false;
-  for (let i = startIdx; i < lines.length && i < startIdx + 500; i++) {
-    for (const ch of lines[i]) {
-      if (ch === '{') { braceCount++; found = true; }
-      if (ch === '}') { braceCount--; }
-      if (found && braceCount === 0) return i + 1;
-    }
-  }
-  return Math.min(startIdx + 20, lines.length);
-}
-
-function resolveImport(fromFile, importPath) {
-  return path.join(path.dirname(fromFile), importPath).replace(/\\/g, '/');
 }
 
 // ============================================================
@@ -411,6 +233,17 @@ function indexCodebase(cwd, opts = {}) {
   const batch = new BatchCollector();
   let indexed = 0, skipped = 0, totalNodes = 0, totalEdges = 0;
 
+  // Per-language config cache keyed by extractor (so JS tsconfig loads once, etc.)
+  const configCache = new Map();
+  function getConfigFor(extractor) {
+    if (!extractor || typeof extractor.loadConfig !== 'function') return null;
+    if (configCache.has(extractor)) return configCache.get(extractor);
+    let cfg = null;
+    try { cfg = extractor.loadConfig(cwd); } catch { cfg = null; }
+    configCache.set(extractor, cfg);
+    return cfg;
+  }
+
   for (const file of files) {
     try {
       const relPath = path.relative(cwd, file).replace(/\\/g, '/');
@@ -423,22 +256,20 @@ function indexCodebase(cwd, opts = {}) {
         continue;
       }
 
+      // Purge stale edges/symbols from any previous index of this file
+      batch.cleanupFile(relPath);
+
       // File node
       batch.addNode({
         id: `file:${relPath}`, kind: 'file', name: path.basename(file),
         file_path: relPath, hash: fileHash
       });
 
-      // Extract symbols
+      // Dispatch to language extractor via registry
       const ext = path.extname(file);
-      let result = { nodes: [], edges: [] };
-      if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
-        result = extractJS(content, relPath);
-      } else if (ext === '.rs') {
-        result = extractRust(content, relPath);
-      } else if (ext === '.py') {
-        result = extractPython(content, relPath);
-      }
+      const extractor = registry.getExtractor(ext);
+      const ctx = { cwd, aliases: getConfigFor(extractor) };
+      const result = extractor ? extractor.extract(content, relPath, ctx) : { nodes: [], edges: [] };
 
       for (const node of result.nodes) batch.addNode(node);
       for (const edge of result.edges) batch.addEdge(edge.source, edge.target, edge.kind);
@@ -532,4 +363,4 @@ if (require.main === module) {
   console.log(parts.join(', '));
 }
 
-module.exports = { indexCodebase, discoverFiles, discoverChangedFiles };
+module.exports = { indexCodebase, discoverFiles, discoverChangedFiles, BatchCollector };

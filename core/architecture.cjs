@@ -16,6 +16,7 @@
 const { execFileSync: safeExec } = require('child_process');
 const path = require('path');
 const brain = require('../brain/index.cjs');
+const registry = require('../brain/extractors/index.cjs');
 
 // ============================================================
 // Ensure architecture table exists
@@ -64,24 +65,31 @@ function computeArchitecture(cwd) {
     inbound[file_path] = [];
   }
 
-  // Build basename→filepath lookup for fuzzy matching unresolved imports
+  // Registry-backed extension list — strips known extensions when building basename lookup
+  const knownExts = registry.knownExtensions();
+  const stripExtRe = new RegExp(
+    '\\.(' + knownExts.map(e => e.replace(/^\./, '').replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')$'
+  );
+
   const basenameMap = {};
   for (const f of allFiles) {
-    const base = f.split('/').pop().replace(/\.(ts|tsx|js|jsx|mjs|cjs|rs|py)$/, '');
+    const base = f.split('/').pop().replace(stripExtRe, '');
     if (!basenameMap[base]) basenameMap[base] = [];
     basenameMap[base].push(f);
   }
 
+  // Candidate suffixes to try when resolving an unresolved import target.
+  // Draws from the extractor registry so new languages auto-participate.
+  const indexExts = knownExts.map(e => `/index${e}`).concat(knownExts.map(e => `/mod${e}`));
+  const TRY_SUFFIXES = [...knownExts, ...indexExts];
+
   function resolveTarget(src, tgt) {
-    // Direct match
     if (allFiles.has(tgt)) return tgt;
-    // Try with common extensions
-    for (const ext of ['.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx', '/index.js']) {
+    for (const ext of TRY_SUFFIXES) {
       if (allFiles.has(tgt + ext)) return tgt + ext;
     }
-    // Fuzzy: match basename in same project
-    const base = tgt.split('/').pop().replace(/\.(ts|tsx|js|jsx)$/, '');
-    const srcProject = src.split('/')[0]; // e.g., 'desktop-app'
+    const base = tgt.split('/').pop().replace(stripExtRe, '');
+    const srcProject = src.split('/')[0];
     const candidates = (basenameMap[base] || []).filter(f => f.startsWith(srcProject));
     if (candidates.length === 1) return candidates[0];
     return null;
@@ -224,27 +232,28 @@ function getFolderRoles(cwd) {
 function getFileLayer(cwd, filePath) {
   return brain.query(cwd,
     `SELECT a.*, f.role as folder_role FROM architecture a LEFT JOIN folders f ON a.folder = f.folder_path ` +
-    `WHERE a.file_path LIKE '%${brain.esc(filePath)}%' LIMIT 5`
+    `WHERE a.file_path = '${brain.esc(filePath)}' LIMIT 5`
   );
 }
 
 function getDataFlow(cwd, filePath) {
+  const f = brain.esc(filePath);
   const file = brain.query(cwd,
-    `SELECT * FROM architecture WHERE file_path LIKE '%${brain.esc(filePath)}%' LIMIT 1`
+    `SELECT * FROM architecture WHERE file_path = '${f}' LIMIT 1`
   );
   if (!file.length) return { error: 'File not found' };
 
   const upstream = brain.query(cwd,
     `SELECT a.file_path, a.layer, a.folder FROM architecture a ` +
     `JOIN edges e ON ('file:' || a.file_path) = e.source ` +
-    `WHERE e.target LIKE '%${brain.esc(filePath)}%' AND e.kind = 'imports' ` +
+    `WHERE e.target = 'file:${f}' AND e.kind = 'imports' ` +
     `ORDER BY a.layer ASC LIMIT 10`
   );
 
   const downstream = brain.query(cwd,
     `SELECT a.file_path, a.layer, a.folder FROM architecture a ` +
     `JOIN edges e ON ('file:' || a.file_path) = e.target ` +
-    `WHERE e.source LIKE '%${brain.esc(filePath)}%' AND e.kind = 'imports' ` +
+    `WHERE e.source = 'file:${f}' AND e.kind = 'imports' ` +
     `ORDER BY a.layer DESC LIMIT 10`
   );
 

@@ -20,7 +20,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execFileSync: safeExec } = require('child_process');
+const { execFile, execFileSync: safeExec } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 
 const CWD = process.env.SHIPFAST_CWD || process.cwd();
 const DB_PATH = path.join(CWD, '.shipfast', 'brain.db');
@@ -56,35 +58,76 @@ function getLinkedPaths() {
   return [];
 }
 
-function queryLinked(sql) {
-  // Query local brain first
+async function queryLinked(sql) {
   const local = query(sql);
-
-  // Then query each linked repo's brain
   const linked = getLinkedPaths();
-  const results = [...local];
-  for (const repoPath of linked) {
-    const linkedDb = path.join(repoPath, '.shipfast', 'brain.db');
-    if (!fs.existsSync(linkedDb)) continue;
-    try {
-      const r = safeExec('sqlite3', ['-json', linkedDb, sql], {
-        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']
-      }).trim();
-      if (r) {
-        const parsed = JSON.parse(r);
-        // Tag results with source repo
-        const repoName = path.basename(repoPath);
-        parsed.forEach(row => { row._repo = repoName; });
-        results.push(...parsed);
-      }
-    } catch {}
-  }
-  return results;
+  const dbs = linked
+    .map(p => ({ db: path.join(p, '.shipfast', 'brain.db'), name: path.basename(p) }))
+    .filter(x => fs.existsSync(x.db));
+  if (!dbs.length) return local;
+
+  const runs = dbs.map(({ db, name }) =>
+    execFileAsync('sqlite3', ['-json', db, sql], { encoding: 'utf8' })
+      .then(({ stdout }) => {
+        const trimmed = (stdout || '').trim();
+        if (!trimmed) return [];
+        let parsed;
+        try { parsed = JSON.parse(trimmed); }
+        catch { return []; }
+        parsed.forEach(row => { row._repo = name; });
+        return parsed;
+      })
+      .catch(() => [])
+  );
+
+  const linkedResults = await Promise.all(runs);
+  return [...local, ...linkedResults.flat()];
 }
 
-// Keep in sync with brain/index.cjs:esc() — MCP server runs as separate process
+// Keep in sync with brain/index.cjs — MCP server runs as separate process
 function esc(s) {
   return s == null ? '' : String(s).replace(/'/g, "''");
+}
+
+function escLike(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_')
+    .replace(/'/g, "''");
+}
+
+function validateSafeString(s, { maxLen = 200, field = 'input', allowEmpty = true } = {}) {
+  if (s == null) {
+    if (allowEmpty) return '';
+    throw new Error(`${field} is required`);
+  }
+  if (typeof s !== 'string') throw new Error(`${field} must be a string, got ${typeof s}`);
+  if (s.indexOf('\0') !== -1) throw new Error(`${field} contains NUL byte`);
+  if (s.length > maxLen) throw new Error(`${field} exceeds max length ${maxLen}`);
+  return s;
+}
+
+// Resolve a user-supplied file reference to exact node file_path(s).
+// Accepts a full relative path OR just a basename; returns an array of
+// candidates (empty if none, one if exact, multiple if ambiguous).
+function resolveFilePath(input) {
+  const s = validateSafeString(input, { field: 'file', maxLen: 400 });
+  if (!s) return [];
+  // If it looks like a full path, try exact match first.
+  if (s.includes('/')) {
+    const hit = query(`SELECT file_path FROM nodes WHERE kind = 'file' AND file_path = '${esc(s)}' LIMIT 1`);
+    if (hit.length) return [hit[0].file_path];
+    // Fall through — try basename match
+  }
+  // Basename or non-exact — match exact path, or a suffix like '/name'
+  const like = escLike(s);
+  const rows = query(
+    `SELECT file_path FROM nodes WHERE kind = 'file' ` +
+    `AND (file_path = '${esc(s)}' OR file_path LIKE '%/${like}' ESCAPE '\\') LIMIT 5`
+  );
+  return rows.map(r => r.file_path);
 }
 
 // ============================================================
@@ -130,20 +173,22 @@ const TOOLS = {
   },
 
   brain_search: {
-    description: 'Search the codebase knowledge graph for files, functions, types, or components by name. Searches local + all linked repos.',
+    description: 'Search the codebase knowledge graph for files, functions, types, or classes by name. Searches local + all linked repos.',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Search term (file name, function name, type name)' },
-        kind: { type: 'string', description: 'Filter by kind: file, function, type, class, component. Optional.', enum: ['file', 'function', 'type', 'class', 'component', ''] }
+        kind: { type: 'string', description: 'Filter by kind: file, function, type, class. Optional.', enum: ['file', 'function', 'type', 'class', ''] }
       },
       required: ['query']
     },
     handler({ query: q, kind }) {
-      const kindFilter = kind ? `AND kind = '${esc(kind)}'` : '';
+      const safeQ = validateSafeString(q, { field: 'query', maxLen: 200 });
+      const safeKind = validateSafeString(kind, { field: 'kind', maxLen: 40 });
+      const kindFilter = safeKind ? `AND kind = '${esc(safeKind)}'` : '';
       return queryLinked(
         `SELECT kind, name, file_path, signature, line_start FROM nodes ` +
-        `WHERE (name LIKE '%${esc(q)}%' OR file_path LIKE '%${esc(q)}%') ${kindFilter} ` +
+        `WHERE (name LIKE '%${escLike(safeQ)}%' ESCAPE '\\' OR file_path LIKE '%${escLike(safeQ)}%' ESCAPE '\\') ${kindFilter} ` +
         `ORDER BY kind, name LIMIT 30`
       );
     }
@@ -159,7 +204,8 @@ const TOOLS = {
       required: []
     },
     handler({ pattern }) {
-      const where = pattern ? `AND file_path LIKE '%${esc(pattern)}%'` : '';
+      const safe = validateSafeString(pattern, { field: 'pattern', maxLen: 200 });
+      const where = safe ? `AND file_path LIKE '%${escLike(safe)}%' ESCAPE '\\'` : '';
       return query(
         `SELECT file_path, hash FROM nodes WHERE kind = 'file' ${where} ORDER BY file_path LIMIT 50`
       );
@@ -302,19 +348,22 @@ const TOOLS = {
     },
     handler({ file, direction, depth }) {
       const d = direction || 'both';
-      const maxDepth = parseInt(depth) || 2;
-      const results = { file, direction: d, inbound: [], outbound: [] };
+      const candidates = resolveFilePath(file);
+      if (!candidates.length) return { error: `No indexed file matches '${file}'`, file, direction: d };
+      if (candidates.length > 1) return { error: 'Ambiguous file reference', candidates, file };
+      const resolved = candidates[0];
+      const results = { file: resolved, direction: d, inbound: [], outbound: [] };
 
       if (d === 'inbound' || d === 'both') {
         results.inbound = query(
           `SELECT REPLACE(source, 'file:', '') as from_file, kind FROM edges ` +
-          `WHERE target LIKE '%${esc(file)}%' AND kind IN ('imports', 'calls', 'depends') LIMIT 20`
+          `WHERE target = 'file:${esc(resolved)}' AND kind IN ('imports', 'calls', 'depends') LIMIT 20`
         );
       }
       if (d === 'outbound' || d === 'both') {
         results.outbound = query(
           `SELECT REPLACE(target, 'file:', '') as to_file, kind FROM edges ` +
-          `WHERE source LIKE '%${esc(file)}%' AND kind IN ('imports', 'calls', 'depends') LIMIT 20`
+          `WHERE source = 'file:${esc(resolved)}' AND kind IN ('imports', 'calls', 'depends') LIMIT 20`
         );
       }
       return results;
@@ -334,9 +383,14 @@ const TOOLS = {
     handler({ file, min_weight }) {
       const w = min_weight || 0.3;
       if (file) {
+        const candidates = resolveFilePath(file);
+        if (!candidates.length) return { error: `No indexed file matches '${file}'`, file };
+        if (candidates.length > 1) return { error: 'Ambiguous file reference', candidates, file };
+        const resolved = candidates[0];
+        const f = esc(resolved);
         return query(
-          `SELECT CASE WHEN source LIKE '%${esc(file)}%' THEN REPLACE(target,'file:','') ELSE REPLACE(source,'file:','') END as related, weight ` +
-          `FROM edges WHERE kind = 'co_changes' AND (source LIKE '%${esc(file)}%' OR target LIKE '%${esc(file)}%') AND weight > ${w} ORDER BY weight DESC LIMIT 10`
+          `SELECT CASE WHEN source = 'file:${f}' THEN REPLACE(target,'file:','') ELSE REPLACE(source,'file:','') END as related, weight ` +
+          `FROM edges WHERE kind = 'co_changes' AND (source = 'file:${f}' OR target = 'file:${f}') AND weight > ${w} ORDER BY weight DESC LIMIT 10`
         );
       }
       return query(`SELECT REPLACE(source,'file:','') as file_a, REPLACE(target,'file:','') as file_b, weight FROM edges WHERE kind = 'co_changes' AND weight > ${w} ORDER BY weight DESC LIMIT 15`);
@@ -355,9 +409,13 @@ const TOOLS = {
     },
     handler({ file, depth }) {
       const maxDepth = parseInt(depth) || 3;
+      const candidates = resolveFilePath(file);
+      if (!candidates.length) return { error: `No indexed file matches '${file}'`, file };
+      if (candidates.length > 1) return { error: 'Ambiguous file reference', candidates, file };
+      const resolved = candidates[0];
       return query(
         `WITH RECURSIVE affected(id, d) AS (` +
-        `  SELECT id, 0 FROM nodes WHERE file_path LIKE '%${esc(file)}%'` +
+        `  SELECT id, 0 FROM nodes WHERE id = 'file:${esc(resolved)}'` +
         `  UNION ` +
         `  SELECT e.source, a.d + 1 FROM edges e JOIN affected a ON e.target = a.id` +
         `  WHERE a.d < ${maxDepth} AND e.kind IN ('imports', 'calls', 'depends')` +
@@ -397,9 +455,12 @@ const TOOLS = {
       required: ['file']
     },
     handler({ file }) {
+      const candidates = resolveFilePath(file);
+      if (!candidates.length) return { error: `No indexed file matches '${file}'`, file };
+      if (candidates.length > 1) return { error: 'Ambiguous file reference', candidates, file };
       return query(
         `SELECT a.*, f.role as folder_role FROM architecture a LEFT JOIN folders f ON a.folder = f.folder_path ` +
-        `WHERE a.file_path LIKE '%${esc(file)}%' LIMIT 10`
+        `WHERE a.file_path = '${esc(candidates[0])}' LIMIT 10`
       );
     }
   },
@@ -412,18 +473,23 @@ const TOOLS = {
       required: ['file']
     },
     handler({ file }) {
-      const current = query(`SELECT a.*, f.role as folder_role FROM architecture a LEFT JOIN folders f ON a.folder = f.folder_path WHERE a.file_path LIKE '%${esc(file)}%' LIMIT 1`);
-      if (!current.length) return { error: 'File not found' };
+      const candidates = resolveFilePath(file);
+      if (!candidates.length) return { error: `No indexed file matches '${file}'`, file };
+      if (candidates.length > 1) return { error: 'Ambiguous file reference', candidates, file };
+      const resolved = candidates[0];
+      const f = esc(resolved);
+      const current = query(`SELECT a.*, f.role as folder_role FROM architecture a LEFT JOIN folders f ON a.folder = f.folder_path WHERE a.file_path = '${f}' LIMIT 1`);
+      if (!current.length) return { error: 'File not indexed by architecture layer' };
 
       const upstream = query(
         `SELECT a.file_path, a.layer, a.folder FROM architecture a ` +
         `JOIN edges e ON ('file:' || a.file_path) = e.source ` +
-        `WHERE e.target LIKE '%${esc(file)}%' AND e.kind = 'imports' ORDER BY a.layer ASC LIMIT 10`
+        `WHERE e.target = 'file:${f}' AND e.kind = 'imports' ORDER BY a.layer ASC LIMIT 10`
       );
       const downstream = query(
         `SELECT a.file_path, a.layer, a.folder FROM architecture a ` +
         `JOIN edges e ON ('file:' || a.file_path) = e.target ` +
-        `WHERE e.source LIKE '%${esc(file)}%' AND e.kind = 'imports' ORDER BY a.layer DESC LIMIT 10`
+        `WHERE e.source = 'file:${f}' AND e.kind = 'imports' ORDER BY a.layer DESC LIMIT 10`
       );
       return { file: current[0], upstream_consumers: upstream, downstream_dependencies: downstream };
     }
@@ -661,23 +727,23 @@ function handleMessage(msg) {
       return send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: 'Unknown tool: ' + toolName }], isError: true } });
     }
 
-    try {
-      const result = tool.handler(params.arguments || {});
-      let text = JSON.stringify(result, null, 2);
-      // Truncate large responses to prevent context flooding (50KB max)
-      if (text.length > 50000) {
-        text = text.slice(0, 50000) + '\n... [truncated — ' + text.length + ' chars total. Use more specific query.]';
-      }
-      return send({
-        jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text }] }
+    // Handlers may be async — await the result before serializing.
+    Promise.resolve()
+      .then(() => tool.handler(params.arguments || {}))
+      .then((result) => {
+        let text = JSON.stringify(result, null, 2);
+        if (text.length > 50000) {
+          text = text.slice(0, 50000) + '\n... [truncated — ' + text.length + ' chars total. Use more specific query.]';
+        }
+        send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }] } });
+      })
+      .catch((err) => {
+        send({
+          jsonrpc: '2.0', id,
+          result: { content: [{ type: 'text', text: 'Error: ' + err.message }], isError: true }
+        });
       });
-    } catch (err) {
-      return send({
-        jsonrpc: '2.0', id,
-        result: { content: [{ type: 'text', text: 'Error: ' + err.message }], isError: true }
-      });
-    }
+    return;
   }
 
   // Unknown method
