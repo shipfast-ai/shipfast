@@ -29,12 +29,21 @@ const loadConfig = regexJs.loadConfig;
 
 const EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
 
-// We only have the JavaScript grammar vendored today; TS files are parsed as
-// JS which handles most modern TS syntax (JSX, types-as-identifiers, async).
-// Pure TypeScript-only constructs (`interface`, `type`) degrade gracefully —
-// they appear as regular identifiers in the AST and are picked up via
-// heuristic fallback below.
-const GRAMMAR = 'javascript';
+// Grammar selection per extension:
+//   .ts          → typescript grammar (proper TS syntax: generics, interface, type, enum)
+//   .tsx         → tsx grammar (TS + JSX)
+//   .js/.jsx/.mjs/.cjs → javascript grammar (handles JSX fine)
+// All three vendored under brain/extractors/grammars/.
+const GRAMMAR = 'javascript'; // default for .js/.jsx/.mjs/.cjs
+const GRAMMAR_FOR_EXT = {
+  '.ts': 'typescript',
+  '.tsx': 'tsx',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.mjs': 'javascript',
+  '.cjs': 'javascript',
+};
+const GRAMMARS_USED = ['javascript', 'typescript', 'tsx'];
 
 function isLocalImport(target) {
   return target.startsWith('.') || target.startsWith('@') || target.startsWith('~') || target.startsWith('#');
@@ -53,9 +62,11 @@ function extract(content, filePath, ctx) {
   const { edges, emit } = makeEdgeEmitter();
   const lines = content.split('\n');
 
+  const ext = path.extname(filePath);
+  const grammar = GRAMMAR_FOR_EXT[ext] || GRAMMAR;
   let tree;
   try {
-    tree = ast.parseSync(GRAMMAR, content);
+    tree = ast.parseSync(grammar, content);
   } catch {
     // If the grammar isn't preloaded or parsing fails catastrophically, emit
     // nothing — indexer's default (regex) path should be used instead.
@@ -340,4 +351,4 @@ function extract(content, filePath, ctx) {
   return { nodes, edges };
 }
 
-module.exports = { extensions: EXTENSIONS, extract, resolveImport, loadConfig, GRAMMAR };
+module.exports = { extensions: EXTENSIONS, extract, resolveImport, loadConfig, GRAMMAR, GRAMMARS_USED };

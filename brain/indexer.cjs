@@ -421,7 +421,7 @@ if (require.main === module) (async () => {
     try {
       const astHelper = require('./extractors/_ast.cjs');
       const astJs = require('./extractors/javascript-ast.cjs');
-      await astHelper.preload([astJs.GRAMMAR]);
+      await astHelper.preload(astJs.GRAMMARS_USED || [astJs.GRAMMAR]);
     } catch (err) {
       console.log('AST preload failed (' + err.message + ') — continuing with regex');
     }
