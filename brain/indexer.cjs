@@ -258,7 +258,7 @@ function indexCodebase(cwd, opts = {}) {
   let astExtByExt = null;
   if (useAst) {
     astExtByExt = {};
-    for (const mod of ['./extractors/javascript-ast.cjs', './extractors/php-ast.cjs', './extractors/python-ast.cjs', './extractors/java-ast.cjs']) {
+    for (const mod of ['./extractors/javascript-ast.cjs', './extractors/php-ast.cjs', './extractors/python-ast.cjs', './extractors/java-ast.cjs', './extractors/go-ast.cjs']) {
       try {
         const ex = require(mod);
         for (const e of ex.extensions) astExtByExt[e] = ex;
@@ -427,7 +427,7 @@ if (require.main === module) (async () => {
     try {
       const astHelper = require('./extractors/_ast.cjs');
       const grammars = [];
-      for (const mod of ['./extractors/javascript-ast.cjs', './extractors/php-ast.cjs', './extractors/python-ast.cjs', './extractors/java-ast.cjs']) {
+      for (const mod of ['./extractors/javascript-ast.cjs', './extractors/php-ast.cjs', './extractors/python-ast.cjs', './extractors/java-ast.cjs', './extractors/go-ast.cjs']) {
         try {
           const ex = require(mod);
           if (ex.GRAMMARS_USED) grammars.push(...ex.GRAMMARS_USED);
