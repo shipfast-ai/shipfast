@@ -244,7 +244,7 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 | Table | What it stores |
 |---|---|
-| `nodes` | Functions, types, classes, components (auto-extracted, 22 languages) |
+| `nodes` | Functions, types, classes (pluggable language extractors, 22 languages) |
 | `edges` | Import/call/dependency relationships + git co-change patterns |
 | `decisions` | Locked Q&A pairs with domain tags (~40 tokens each) |
 | `learnings` | Error→fix patterns with confidence scoring (0.0-1.0) |
@@ -260,7 +260,7 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 **Incremental indexing**: ~300ms for changed files. Deleted files auto-cleaned. Stale learnings auto-pruned.
 
-**MCP Server**: 23 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
+**MCP Server**: 22 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
 
 ---
 
