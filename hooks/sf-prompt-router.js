@@ -113,9 +113,39 @@ function truncate(s, max) {
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
+// Cache the expensive snapshot build for 30s keyed on brain.db mtime.
+// Each sqlite3 subprocess takes ~10-20ms and we make ~7 queries per turn —
+// the snapshot stays identical until someone re-indexes. Cache file lives in
+// tmpdir so it survives across hook invocations without needing a long-lived
+// process.
+const CACHE_TTL_MS = 30_000;
+function snapshotCachePath(dbPath) {
+  return path.join(os.tmpdir(), 'sf-prompt-snapshot-' + Buffer.from(dbPath).toString('base64url') + '.txt');
+}
+function readCachedSnapshot(dbPath) {
+  try {
+    const cachePath = snapshotCachePath(dbPath);
+    if (!fs.existsSync(cachePath)) return null;
+    const dbStat = fs.statSync(dbPath);
+    const cacheStat = fs.statSync(cachePath);
+    const ageMs = Date.now() - cacheStat.mtimeMs;
+    // Invalidate if brain.db was modified after the cache, or cache is stale.
+    if (dbStat.mtimeMs > cacheStat.mtimeMs) return null;
+    if (ageMs > CACHE_TTL_MS) return null;
+    return fs.readFileSync(cachePath, 'utf8');
+  } catch { return null; }
+}
+function writeCachedSnapshot(dbPath, content) {
+  try { fs.writeFileSync(snapshotCachePath(dbPath), content); } catch { /* silent */ }
+}
+
 function buildBrainContext(cwd) {
   const db = findBrainDb(cwd);
   if (!db) return '';
+
+  // Fast path: reuse a recent snapshot if brain.db hasn't changed.
+  const cached = readCachedSnapshot(db);
+  if (cached != null) return cached;
 
   const [{ n: nodeCount = 0 } = {}] = runSql(db, 'SELECT COUNT(*) as n FROM nodes');
   if (!nodeCount) return ''; // brain.db exists but is empty
@@ -166,5 +196,7 @@ function buildBrainContext(cwd) {
   lines.push('Edges table tracks: imports · calls · implements · depends · mutates · exports · extends · co_changes.');
   lines.push('Before reading files cold: query the graph first. To answer "what breaks if I change X?" or "what depends on X?", use brain_impact instead of cold reads.');
 
-  return lines.join('\n');
+  const content = lines.join('\n');
+  writeCachedSnapshot(db, content);
+  return content;
 }

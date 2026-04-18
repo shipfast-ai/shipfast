@@ -39,11 +39,14 @@ function analyzeCoChanges(cwd, commitLimit = 200) {
       } catch { /* skip bad commits */ }
     }
 
-    // Store top co-change pairs in brain.db
+    // Store top co-change pairs in brain.db. Cap at 300 (up from 100) to
+    // retain more signal on larger repos while still bounding edge count.
+    // Pairs are already sorted by frequency; low-ranked pairs have lowest
+    // weight so truncation sheds the least useful signal.
     const topPairs = Object.entries(pairCounts)
       .filter(([_, count]) => count >= 2)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 100);
+      .slice(0, 300);
 
     if (topPairs.length > 0) {
       const statements = ['BEGIN TRANSACTION;'];

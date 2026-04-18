@@ -60,9 +60,13 @@ function resolveEdges(symbolNodes, edges) {
     if (!candidates || candidates.size === 0) continue; // drop — no match
     if (candidates.size > MAX_CANDIDATES_PER_NAME) continue; // drop — too generic
 
+    // Ambiguity weight: 1.0 when exactly one match (high confidence);
+    // 1 / candidates.size when multiple. Consumers can filter weight >= 0.9
+    // to get only high-confidence edges.
+    const weight = 1 / candidates.size;
     for (const id of candidates) {
       if (id === edge.source) continue; // no self-edges
-      pushOnce(out, seen, { ...edge, target: id });
+      pushOnce(out, seen, { ...edge, target: id, weight });
     }
   }
 
