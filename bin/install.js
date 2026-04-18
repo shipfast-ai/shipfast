@@ -78,6 +78,7 @@ function main() {
     case 'unlink':   return cmdUnlink();
     case 'update':   return cmdUpdate();
     case 'uninstall': return cmdUninstall();
+    case 'reindex':  return cmdReindex();
     case 'status':   return cmdStatus();
     case 'doctor':      return cmdDoctor();
     case 'permissions': return cmdPermissions();
@@ -322,6 +323,32 @@ function cmdInit() {
 
 // Refresh — re-scan project signals (deps, scripts, framework) without full reindex.
 // Fast (~50ms) and safe to run after `npm install`, `cargo add`, etc.
+// REINDEX — incremental reindex (git-dirty files only)
+function cmdReindex() {
+  const cwd = process.cwd();
+  if (!fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'))) {
+    console.log(`${yellow}No brain.db here.${reset} Run ${cyan}shipfast init${reset} first.\n`);
+    return;
+  }
+  const indexer = findIndexer();
+  if (!indexer) {
+    console.log(`${red}ShipFast indexer not found.${reset}\n`);
+    return;
+  }
+  const useAst = !process.argv.includes('--regex');
+  console.log('Reindexing changed files...');
+  try {
+    const args = [indexer, cwd, '--changed-only'];
+    if (useAst) args.push('--ast');
+    const out = safeRun(process.execPath, args, {
+      encoding: 'utf8', timeout: 60000, stdio: ['pipe', 'pipe', 'pipe']
+    });
+    console.log(`${green}${out.trim()}${reset}\n`);
+  } catch (err) {
+    console.log(`${red}Reindex failed:${reset} ${err.message}\n`);
+  }
+}
+
 function cmdRefresh() {
   const cwd = process.cwd();
   if (!fs.existsSync(path.join(cwd, '.shipfast', 'brain.db'))) {
@@ -785,6 +812,7 @@ function cmdHelp() {
   console.log(`  ${cyan}shipfast init${reset}             Index current repo into .shipfast/brain.db`);
   console.log(`  ${cyan}shipfast init --fresh${reset}     Full reindex (clears existing brain.db)`);
   console.log(`  ${cyan}shipfast refresh${reset}          Re-scan project signals (deps, framework, scripts) only`);
+  console.log(`  ${cyan}shipfast reindex${reset}          Incremental reindex of git-dirty files (fast, ~100ms)`);
   console.log(`  ${cyan}shipfast link <path>${reset}      Link another repo for cross-repo search`);
   console.log(`  ${cyan}shipfast unlink [path]${reset}    Unlink a repo (or all)`);
   console.log(`  ${cyan}shipfast status${reset}           Show installed runtimes + brain + links`);

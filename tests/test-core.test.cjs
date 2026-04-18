@@ -1656,3 +1656,163 @@ describe('javascript-ast extractor parity', () => {
     assert.ok(hasImport, 'require("./util") should emit an imports edge');
   });
 });
+
+// ============================================================
+// v2.0 — MCP tools added in this release (brain_impact, brain_trace,
+// brain_findings, brain_sessions). Integration tests via loadMcp().
+// ============================================================
+
+describe('v2.0 brain_impact MCP tool', () => {
+  it('walks edges upstream and downstream with depth', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-impact-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const seed = [
+        `INSERT INTO nodes (id, kind, name, file_path) VALUES ('file:a.js', 'file', 'a.js', 'a.js');`,
+        `INSERT INTO nodes (id, kind, name, file_path) VALUES ('file:b.js', 'file', 'b.js', 'b.js');`,
+        `INSERT INTO nodes (id, kind, name, file_path) VALUES ('file:c.js', 'file', 'c.js', 'c.js');`,
+        `INSERT INTO edges (source, target, kind) VALUES ('file:a.js', 'file:b.js', 'imports');`,
+        `INSERT INTO edges (source, target, kind) VALUES ('file:b.js', 'file:c.js', 'imports');`,
+      ].join('\n');
+      execFileSync('sqlite3', [path.join(tmp, '.shipfast/brain.db')], { input: seed });
+
+      const mcp = loadMcp(tmp);
+      const up = mcp.TOOLS.brain_impact.handler({ node: 'file:c.js', direction: 'upstream', depth: 2 });
+      assert.equal(up.total_touched, 2, 'upstream from c.js should reach b.js and a.js');
+      const down = mcp.TOOLS.brain_impact.handler({ node: 'file:a.js', direction: 'downstream', depth: 2 });
+      assert.equal(down.total_touched, 2, 'downstream from a.js should reach b.js and c.js');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('v2.0 brain_trace MCP tool', () => {
+  it('finds BFS paths between two nodes', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-trace-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const seed = [
+        `INSERT INTO nodes (id, kind, name, file_path) VALUES ('file:a.js', 'file', 'a.js', 'a.js');`,
+        `INSERT INTO nodes (id, kind, name, file_path) VALUES ('file:b.js', 'file', 'b.js', 'b.js');`,
+        `INSERT INTO nodes (id, kind, name, file_path) VALUES ('file:c.js', 'file', 'c.js', 'c.js');`,
+        `INSERT INTO edges (source, target, kind) VALUES ('file:a.js', 'file:b.js', 'imports');`,
+        `INSERT INTO edges (source, target, kind) VALUES ('file:b.js', 'file:c.js', 'imports');`,
+      ].join('\n');
+      execFileSync('sqlite3', [path.join(tmp, '.shipfast/brain.db')], { input: seed });
+
+      const mcp = loadMcp(tmp);
+      const res = mcp.TOOLS.brain_trace.handler({ from: 'file:a.js', to: 'file:c.js', max_depth: 3, kinds: 'imports' });
+      assert.equal(res.found, 1, 'expected one path a.js → c.js');
+      assert.equal(res.paths[0].length, 2, 'path length should be 2 hops');
+      assert.deepEqual(res.paths[0].path, ['file:a.js', 'file:b.js', 'file:c.js']);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('returns no paths when nodes are disconnected', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-trace-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      execFileSync('sqlite3', [path.join(tmp, '.shipfast/brain.db')], {
+        input: `INSERT INTO nodes (id, kind, name, file_path) VALUES ('fn:x:foo', 'function', 'foo', 'x');`
+      });
+      const mcp = loadMcp(tmp);
+      const res = mcp.TOOLS.brain_trace.handler({ from: 'fn:x:foo', to: 'fn:y:bar' });
+      assert.equal(res.found, 0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('v2.0 brain_findings MCP tool', () => {
+  const crypto = require('node:crypto');
+
+  it('add → list_fresh returns the finding when citation valid', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-find-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const srcPath = path.join(tmp, 'src.ts');
+      fs.writeFileSync(srcPath, ['line1', 'line2', 'line3'].join('\n'));
+      const hash = crypto.createHash('sha256').update('line1\nline2\nline3').digest('hex').slice(0, 16);
+      const mcp = loadMcp(tmp);
+      const added = mcp.TOOLS.brain_findings.handler({
+        action: 'add', branch: 'main', topic: 'test', summary: 's', body: 'b',
+        citations: JSON.stringify([{ file: 'src.ts', line_start: 1, line_end: 3, sha: 'abc', hash }])
+      });
+      assert.equal(added.status, 'added');
+      const fresh = mcp.TOOLS.brain_findings.handler({ action: 'list_fresh', branch: 'main' });
+      assert.equal(fresh.length, 1);
+      assert.equal(fresh[0].status, 'fresh');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('clear_branch hides findings from list_fresh', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-find-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      fs.writeFileSync(path.join(tmp, 'a.ts'), 'x\ny');
+      const h = crypto.createHash('sha256').update('x\ny').digest('hex').slice(0, 16);
+      const mcp = loadMcp(tmp);
+      mcp.TOOLS.brain_findings.handler({
+        action: 'add', branch: 'feat/x', topic: 't', summary: 's', body: 'b',
+        citations: JSON.stringify([{ file: 'a.ts', line_start: 1, line_end: 2, sha: 'abc', hash: h }])
+      });
+      mcp.TOOLS.brain_findings.handler({ action: 'clear_branch', branch: 'feat/x' });
+      const after = mcp.TOOLS.brain_findings.handler({ action: 'list_fresh', branch: 'feat/x' });
+      assert.equal(after.length, 0);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('v2.0 brain_sessions MCP tool', () => {
+  it('start + finish records complete session', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-sess-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const mcp = loadMcp(tmp);
+      mcp.TOOLS.brain_sessions.handler({ action: 'start', run_id: 'r1', command: 'sf:do', args: 'add x', branch: 'main' });
+      mcp.TOOLS.brain_sessions.handler({ action: 'finish', run_id: 'r1', outcome: 'completed', artifacts_written: '[]' });
+      const got = mcp.TOOLS.brain_sessions.handler({ action: 'get', run_id: 'r1' });
+      assert.equal(got.command, 'sf:do');
+      assert.equal(got.outcome, 'completed');
+      assert.equal(got.branch, 'main');
+      assert.ok(got.finished_at >= got.started_at);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('list filters by command and branch', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sf-sess-'));
+    try {
+      const brain = require('../brain/index.cjs');
+      brain.initBrain(tmp);
+      const mcp = loadMcp(tmp);
+      const h = mcp.TOOLS.brain_sessions.handler;
+      h({ action: 'start', run_id: 'a', command: 'sf:do', branch: 'main' });
+      h({ action: 'finish', run_id: 'a', outcome: 'completed' });
+      h({ action: 'start', run_id: 'b', command: 'sf:plan', branch: 'feat/x' });
+      h({ action: 'finish', run_id: 'b', outcome: 'redirected', redirect_to: 'sf:do' });
+      const all = h({ action: 'list' });
+      assert.equal(all.length, 2);
+      const byCmd = h({ action: 'list', command_filter: 'sf:plan' });
+      assert.equal(byCmd.length, 1);
+      assert.equal(byCmd[0].run_id, 'b');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});

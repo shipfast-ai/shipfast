@@ -433,21 +433,42 @@ Only AFTER 7A-7H are complete, proceed to STEP 8.
 
 ## STEP 8: LEARN
 
-**Explicitly record decisions and learnings using these exact commands:**
+**This step is REQUIRED for every non-trivial run. Not a judgment call.**
 
-If you made any architectural decisions during this task, record each one:
+### 8a. Decisions — auto-record per classification
 
-`brain_decisions: { action: add, question: [what was decided], decision: [the choice], reasoning: [why], phase: [current task] }`
+For every run where intent classification in STEP 1 was `medium` or `complex`, record AT LEAST ONE decision row BEFORE exiting this step. The decision can be about:
 
-If you encountered and fixed any errors, record the pattern:
+- The approach Architect picked (and what alternatives were considered)
+- Any irreversible operation Critic flagged and how it was handled
+- A non-obvious tradeoff you made during Builder execution
+- A library / pattern you chose when multiple would have worked
 
-`brain_learnings: { action: add, pattern: [short pattern name], problem: [what went wrong], solution: [what fixed it], domain: [domain], source: auto, confidence: 0.5 }`
+Use `brain_decisions { action: "add", question: "[what had to be decided]", decision: "[the choice]", reasoning: "[why — 1-2 sentences]", phase: "[current task id or branch name]" }`.
 
-If any improvement ideas, future features, or tech debt were surfaced during this task (including OUT_OF_SCOPE items), record them as seeds:
+If genuinely no meaningful decision was made (rare — usually only for `trivial` classification), record:
 
-`brain_seeds: { action: add, idea: [idea], source_task: [current task], domain: [domain], priority: someday }`
+`brain_decisions { action: "add", question: "Approach for [task]", decision: "Direct implementation — no significant choice required", reasoning: "Task was [trivial/single-file/already-obvious]", phase: "[task id]" }`
 
-**These are not optional.** If decisions were made, errors were fixed, or ideas were surfaced, you MUST record them. This is how ShipFast gets smarter over time.
+The point is to build up a history that later runs can consult via `brain_decisions { action: "list" }`.
+
+### 8b. Learnings — auto-record from failures + successes
+
+Any retry, any error that was fixed, any "I didn't expect that" moment:
+
+`brain_learnings { action: "add", pattern: "[short kebab-case pattern name]", problem: "[what went wrong]", solution: "[what fixed it]", domain: "[auth/db/ui/api/…]", source: "auto", confidence: 0.5 }`
+
+If a pattern from an EARLIER learning helped this run (i.e. you pulled from `brain_learnings` and it was useful), boost its confidence:
+
+`brain_learnings { action: "boost", pattern: "[pattern]" }`
+
+### 8c. Seeds — forward ideas
+
+Any OUT_OF_SCOPE, future-work, or "we should also…" thought:
+
+`brain_seeds { action: "add", idea: "[idea]", source_task: "[current task]", domain: "[domain]", priority: "someday" }`
+
+**These records are not optional — they're how `brain.db`'s decisions/learnings tables actually populate. Empty tables across runs mean this step is being skipped.**
 
 ---
 
