@@ -261,7 +261,15 @@ All state lives in `.shipfast/brain.db`. Zero markdown files.
 
 **Incremental indexing**: ~300ms for changed files. Deleted files auto-cleaned. Stale learnings auto-pruned.
 
-**MCP Server**: 26 structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL.
+**AST extraction (v2.0, default)**: code is parsed via tree-sitter (6 vendored grammars: JavaScript, TypeScript, TSX, PHP, Python, Java, Go). Per-file node/edge emission is stricter than regex — no false positives from strings/comments/templates, and AST-aware patterns like method dispatch (`obj.method()`) and `this.field = x` mutates edges are resolved. Pass `--regex` to `shipfast init` to use the legacy regex extractors instead.
+
+**Project-wide symbol resolver (v2.0)**: after all files are extracted, a second pass walks every call site emitted as `unresolved:<name>` and rewrites it against a project-wide symbol index. This closes the cross-file call-graph gap for languages without named imports (Swift, Ruby, Lua, C, C++) and fills in missed cross-file edges for every other language. Ambiguous matches (2-5 candidates) emit weighted edges — filter by `weight >= 0.9` for high-confidence-only traversal.
+
+**MCP Server**: 30+ structured tools for IDE integration. Commands and agents use MCP tools — no raw SQL. New in v2.0:
+- `brain_impact(node, direction, depth)` — walk edges upstream/downstream with kind filters
+- `brain_trace(from, to)` — BFS pathfinding between two nodes
+- `brain_findings(branch)` — per-branch cited Scout output with citation verification
+- `brain_sessions` — every `/sf:*` invocation's start/finish record, including redirects and bail-outs
 
 **MCP auto-registration** (v1.8.0): shipfast writes the MCP server into each AI tool's native config file — Claude Code (`settings.json`), OpenCode (`settings.json`), Kilo (`kilo.jsonc`), Cursor (`mcp.json`), Codex (`config.toml`), Copilot (`mcp-config.json`), Windsurf (`mcp_config.json`), Gemini CLI (`settings.json`), Qwen Code (`settings.json`), Cline (`data/settings/cline_mcp_settings.json`) — so `brain_*` tools are immediately available on every supported platform.
 
@@ -336,7 +344,7 @@ Models are **dynamically selected** — not fixed. The feedback loop tracks whic
 
 ---
 
-## Auto-routing (opt-in)
+## Auto-routing + brain snapshot on every prompt
 
 Tired of typing `/sf:do` every turn? Toggle auto-routing from inside Claude Code:
 
@@ -360,6 +368,12 @@ SF⚡ · Opus · $0.12
 - starts with or ends with `?` → question
 - fewer than 4 chars → short ack like "yes" / "ok"
 
+### Brain snapshot on every prompt (v2.0)
+
+Independent of the auto-route flag, the hook also **injects a compact snapshot of your `brain.db` into every prompt**: node/edge counts, top hot files, recent decisions/learnings/findings/sessions, and the full list of `brain_*` MCP tools + edge kinds. The model gets situational awareness of your codebase every turn without asking. Snapshot is cached for 30 s keyed on `brain.db` mtime — negligible overhead after the first turn in a stable window.
+
+No config. Works as long as `brain.db` exists in or above the current working directory.
+
 ---
 
 ## Self-Improving Memory
@@ -378,9 +392,21 @@ Learnings are confidence-weighted (0.0-1.0). Boosted on successful reuse. Auto-p
 
 ## Supported Languages
 
-22 languages indexed: JavaScript, TypeScript, Rust, Python, Go, Java, Kotlin, Swift, C, C++, Ruby, PHP, Dart, Elixir, Scala, Zig, Lua, R, Julia, C#, F#, Vue/Svelte/Astro.
+22 languages indexed overall. v2.0 ships AST-based extractors for the top 6; the rest use regex with the project-wide resolver filling cross-file gaps.
 
-50+ directories skipped. 25+ lock files skipped.
+| Mode | Languages |
+|---|---|
+| **AST (tree-sitter)** — strict parsing, method dispatch, mutates edges | JavaScript, TypeScript, JSX/TSX, PHP, Python, Java, Go |
+| **Regex + resolver** — same-file via extractor, cross-file via project-wide resolver | Rust, Kotlin, Swift, C, C++, Ruby, Dart, Elixir, Scala, Zig, Lua, R, Julia, C#, F#, Vue/Svelte/Astro |
+| **Also indexed** — not executable code but reachable via `brain_search` | Markdown (skills, docs, READMEs) |
+
+50+ directories skipped. 25+ lock files skipped. `resources/views/vendor/` (Laravel view overrides) is an explicit exception to the `vendor/` skip rule.
+
+### Install size (v2.0)
+
+Vendored tree-sitter grammars (~4.3 MB total: js + ts + tsx + php + python + java + go WASM) plus the web-tree-sitter runtime (~200 KB) ship in the tarball. Total install ~5 MB, up from ~153 KB in v1.9.x. Everything is loaded lazily — if you run `shipfast init --regex`, the WASMs are never touched at runtime.
+
+Later releases may split grammars into a peer package to keep the base install small; see `docs` track in the project plan.
 
 ---
 
